@@ -11,9 +11,9 @@
       "sha256": "33a39532b15bcf158a4bae1e8f878f19bb188ab8322d2edb48ab4cf8d4c312fe"
     },
     {
-      "bytes": 2494,
+      "bytes": 2734,
       "path": "CHANGELOG.md",
-      "sha256": "e84baef7ba0184db4a29fc6c376677a6b4e99dcf2b3901caba0fa64cf3daf6f0"
+      "sha256": "f9dcdcba7a9b5fb3370bdb8eedb54cd1c641c37f2f2582733a4c07a9f39fd318"
     },
     {
       "bytes": 5031,
@@ -41,14 +41,29 @@
       "sha256": "61abd970cc3a00c82148f2786dd3686640894805d4346a76cff6f29195606029"
     },
     {
+      "bytes": 399,
+      "path": "deploy/dev/Dockerfile.check",
+      "sha256": "2eb65b84563cdb4bcbce0f1f56638ee0b70ef4b4a91f4cf3c885e4ff65c83537"
+    },
+    {
+      "bytes": 164,
+      "path": "deploy/dev/pipeline-policy.example.json",
+      "sha256": "7ed222ded459e16825be5d060d4625514e66c453da5f046c9da3686ada416922"
+    },
+    {
       "bytes": 12468,
       "path": "docs/public/README.md",
       "sha256": "13cbc26b8aec8a7df0cc2695ff2dca64d45c2033bac38c9a2571f3431529c348"
     },
     {
-      "bytes": 4652,
+      "bytes": 9371,
+      "path": "docs/public/local-pipeline.md",
+      "sha256": "cf46edfc0260b2c4b66efac9ac5424b3c21198e3a5abf7de76e36b2aa00cfed3"
+    },
+    {
+      "bytes": 5200,
       "path": "public/export-allowlist.json",
-      "sha256": "039c6abe2199c652aa7b3be91c96b602e43cc87221362ea9979e03c7ee23cf08"
+      "sha256": "9969daf3181aeb65d4228352c12f7315fe3e2fd4ec45bc5e4503a92cd663f66f"
     },
     {
       "bytes": 112,
@@ -59,6 +74,11 @@
       "bytes": 170,
       "path": "pyproject.toml",
       "sha256": "39f7fe7e15b326c5690f120711dfab1c566e1e11f0a718f06fbb6a86527afed0"
+    },
+    {
+      "bytes": 28349,
+      "path": "scripts/dev-pipeline.py",
+      "sha256": "5832492038fc29907abfc82eca61f94eb7fc6f614db4bb56ab44f623bc33536b"
     },
     {
       "bytes": 12355,
@@ -161,6 +181,11 @@
       "sha256": "3f7d0c1026e2301ed87ad78383f18fa17120ba747ac96870a8b32f05f8498b3e"
     },
     {
+      "bytes": 20369,
+      "path": "tests/test_dev_pipeline.py",
+      "sha256": "88c8751106da364d3511a26671aa37ef2b6cb2c3ebd180e677f489cb22c9ab2e"
+    },
+    {
       "bytes": 1561,
       "path": "tests/test_diagnostics.py",
       "sha256": "c2e406bdbb8ed49eae049b7dc8930621cadbe44f400dc4084cd9295e8c9b23ef"
@@ -223,5 +248,5 @@
   ],
   "provenance": "sanitized_source_snapshot",
   "schema_version": 1,
-  "source_revision": "748e71ec5a511c1336693130651723a9e013d63d"
+  "source_revision": "62cad898162a48d2076aebbe756d1becf239ab9c"
 }

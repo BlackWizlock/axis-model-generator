@@ -176,6 +176,26 @@
     {
       "source": "tests/test_public_repository.py",
       "export": "tests/test_public_repository.py"
+    },
+    {
+      "source": "scripts/dev-pipeline.py",
+      "export": "scripts/dev-pipeline.py"
+    },
+    {
+      "source": "deploy/dev/Dockerfile.check",
+      "export": "deploy/dev/Dockerfile.check"
+    },
+    {
+      "source": "deploy/dev/pipeline-policy.example.json",
+      "export": "deploy/dev/pipeline-policy.example.json"
+    },
+    {
+      "source": "tests/test_dev_pipeline.py",
+      "export": "tests/test_dev_pipeline.py"
+    },
+    {
+      "source": "docs/public/local-pipeline.md",
+      "export": "docs/public/local-pipeline.md"
     }
   ]
 }
