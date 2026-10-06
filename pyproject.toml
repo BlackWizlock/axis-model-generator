@@ -1,0 +1,6 @@
+[project]
+name = "model-generator"
+version = "0.1.0"
+description = "Local ZIP and FBX diagnostics for BIM model experiments"
+requires-python = ">=3.14"
+dependencies = []
