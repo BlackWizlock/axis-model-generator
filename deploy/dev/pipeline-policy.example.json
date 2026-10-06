@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "networks": ["model-generator_private"],
+  "volumes": ["model-generator_models", "model-generator_reports", "model-generator_backups"]
+}
