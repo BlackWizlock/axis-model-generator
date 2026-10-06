@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "source": "docs/public/README.md",
+      "export": "docs/public/README.md"
+    },
+    {
+      "source": "public/export-allowlist.json",
+      "export": "public/export-allowlist.json"
+    },
+    {
+      "source": "public/gitignore.template",
+      "export": "public/gitignore.template"
+    },
+    {
+      "source": "pyproject.toml",
+      "export": "pyproject.toml"
+    },
+    {
+      "source": "scripts/export-public.py",
+      "export": "scripts/export-public.py"
+    },
+    {
+      "source": "src/model_generator/__init__.py",
+      "export": "src/model_generator/__init__.py"
+    },
+    {
+      "source": "src/model_generator/__main__.py",
+      "export": "src/model_generator/__main__.py"
+    },
+    {
+      "source": "src/model_generator/archive.py",
+      "export": "src/model_generator/archive.py"
+    },
+    {
+      "source": "src/model_generator/diagnostics.py",
+      "export": "src/model_generator/diagnostics.py"
+    },
+    {
+      "source": "src/model_generator/fbx_binary.py",
+      "export": "src/model_generator/fbx_binary.py"
+    },
+    {
+      "source": "src/model_generator/fbx_inspection.py",
+      "export": "src/model_generator/fbx_inspection.py"
+    },
+    {
+      "source": "src/model_generator/limits.py",
+      "export": "src/model_generator/limits.py"
+    },
+    {
+      "source": "src/model_generator/package_manifest.py",
+      "export": "src/model_generator/package_manifest.py"
+    },
+    {
+      "source": "src/model_generator/package_reader.py",
+      "export": "src/model_generator/package_reader.py"
+    },
+    {
+      "source": "src/model_generator/package_scene.py",
+      "export": "src/model_generator/package_scene.py"
+    },
+    {
+      "source": "src/model_generator/package_validator.py",
+      "export": "src/model_generator/package_validator.py"
+    },
+    {
+      "source": "src/model_generator/png_inspection.py",
+      "export": "src/model_generator/png_inspection.py"
+    },
+    {
+      "source": "src/model_generator/profiles.py",
+      "export": "src/model_generator/profiles.py"
+    },
+    {
+      "source": "src/model_generator/validator.py",
+      "export": "src/model_generator/validator.py"
+    },
+    {
+      "source": "tests/fixtures/__init__.py",
+      "export": "tests/fixtures/__init__.py"
+    },
+    {
+      "source": "tests/fixtures/builders.py",
+      "export": "tests/fixtures/builders.py"
+    },
+    {
+      "source": "tests/fixtures/package_builders.py",
+      "export": "tests/fixtures/package_builders.py"
+    },
+    {
+      "source": "tests/test_archive.py",
+      "export": "tests/test_archive.py"
+    },
+    {
+      "source": "tests/test_cli.py",
+      "export": "tests/test_cli.py"
+    },
+    {
+      "source": "tests/test_diagnostics.py",
+      "export": "tests/test_diagnostics.py"
+    },
+    {
+      "source": "tests/test_fbx_binary.py",
+      "export": "tests/test_fbx_binary.py"
+    },
+    {
+      "source": "tests/test_fbx_inspection.py",
+      "export": "tests/test_fbx_inspection.py"
+    },
+    {
+      "source": "tests/test_package_reader.py",
+      "export": "tests/test_package_reader.py"
+    },
+    {
+      "source": "tests/test_package_scene.py",
+      "export": "tests/test_package_scene.py"
+    },
+    {
+      "source": "tests/test_package_validator.py",
+      "export": "tests/test_package_validator.py"
+    },
+    {
+      "source": "tests/test_png_inspection.py",
+      "export": "tests/test_png_inspection.py"
+    },
+    {
+      "source": "tests/test_public_export.py",
+      "export": "tests/test_public_export.py"
+    },
+    {
+      "source": "tests/test_public_profile.py",
+      "export": "tests/test_public_profile.py"
+    },
+    {
+      "source": "tests/test_review_regressions.py",
+      "export": "tests/test_review_regressions.py"
+    },
+    {
+      "source": "tests/test_validator.py",
+      "export": "tests/test_validator.py"
+    },
+    {
+      "source": "public/gitignore.template",
+      "export": ".gitignore"
+    },
+    {
+      "source": "docs/public/README.md",
+      "export": "README.md"
+    },
+    {
+      "source": "LICENSE",
+      "export": "LICENSE"
+    },
+    {
+      "source": "NOTICE",
+      "export": "NOTICE"
+    },
+    {
+      "source": "CHANGELOG.md",
+      "export": "CHANGELOG.md"
+    },
+    {
+      "source": "CONTRIBUTING.md",
+      "export": "CONTRIBUTING.md"
+    },
+    {
+      "source": "SECURITY.md",
+      "export": "SECURITY.md"
+    },
+    {
+      "source": ".github/PULL_REQUEST_TEMPLATE.md",
+      "export": ".github/PULL_REQUEST_TEMPLATE.md"
+    },
+    {
+      "source": "tests/test_public_repository.py",
+      "export": "tests/test_public_repository.py"
+    }
+  ]
+}

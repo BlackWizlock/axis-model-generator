@@ -1,0 +1,13 @@
+_output/
+_input/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+node_modules/
+.next/
+dist/
+*.zip
