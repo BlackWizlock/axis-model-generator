@@ -92,3 +92,8 @@ test('guest bootstrap quota error preserves trusted repair and request ID instea
  try{const {guestSession}=await import('../src/auth.js');await assert.rejects(guestSession(),error=>error.status===429&&error.message.includes(help.title)&&error.message.includes(help.nextAction)&&error.message.includes(help.request_id));}finally{globalThis.fetch=previous;}
  const app=await readFile(new URL('../src/app.js',import.meta.url),'utf8');assert.match(app,/catch\(error\)\{setUser\(null\);message\('session-message',safeError\(error\),true\)/);assert.match(app,/setAttribute\('role',error\?'alert':'status'\)/);assert.doesNotMatch(app,/Загрузка станет доступна после подключения сервиса\.|Сеанс недоступен\. Откройте страницу заново\./);
 });
+
+test('cancelled and failed diagnostics are final user-facing states',async()=>{
+ const {completionText}=await import('../src/checks.js');
+ for(const[state,text]of [['cancelled','Обработка отменена'],['interrupted','Обработка прервана'],['failed','Обработку не удалось завершить'],['deleted','Задание удалено'],['deleting','Задание удаляется']]) assert.equal(completionText({state},{checks:[]}),text);
+});

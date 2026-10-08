@@ -5,7 +5,7 @@ from starlette.responses import FileResponse
 from .security import ApiError
 
 ROOT = Path(__file__).resolve().parents[3] / 'web' / 'dist'
-PAGES = {'': 'index.html', 'privacy': 'privacy.html', 'support': 'support.html'}
+PAGES = {'': 'index.html', 'privacy': 'privacy.html', 'support': 'support.html', 'analytics-consent': 'analytics-consent.html'}
 PUBLIC = frozenset({
     'styles.css', 'THIRD-PARTY-NOTICES.md', 'robots.txt', 'sitemap.xml', 'favicon.ico',
     *('src/' + name + '.js' for name in ('api','auth','upload','sha256','hash-worker','jobs','preview','app','checks','shell','analytics')),

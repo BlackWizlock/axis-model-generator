@@ -14,6 +14,7 @@ from .config import Settings
 from .db import Database
 from .auth import KdfPool,cleanup_guests,consume_limit
 from .auth_routes import router as auth_router
+from .analytics_routes import router as analytics_router,cleanup_consents
 from .uploads import router as uploads_router,owned_io
 from .store import Storage
 from .upload_chunks import router as chunks_router
@@ -81,6 +82,7 @@ def create_app(settings: Settings) -> FastAPI:
                 if not lock_valid(): raise RuntimeError('API lock identity unverified')
                 await owned_io(app.state.storage,lambda:app.state.storage.sweep(int(app.state.clock()),api_lock_owned=True))
                 await app.state.db.run(cleanup_guests,app.state.db,int(app.state.clock()))
+                await app.state.db.run(cleanup_consents,app.state.db,int(app.state.clock()))
             try: await sweep()
             except (ApiError,RuntimeError) as error:
                 emit(journal,'cleanup',getattr(error,'code','internal_error'),uuid4().hex,error)
@@ -111,6 +113,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings=settings
     app.state.clock=time.time
     app.include_router(auth_router)
+    app.include_router(analytics_router)
     app.include_router(uploads_router)
     app.include_router(chunks_router)
     app.include_router(jobs_router)

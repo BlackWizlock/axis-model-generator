@@ -5,7 +5,7 @@ import time
 import psycopg
 from .config import read_secret_env, validate_database_url
 
-EXPECTED_SCHEMA_VERSION = 8
+EXPECTED_SCHEMA_VERSION = 9
 MIGRATION_LOCK = 0x4d474d494752
 
 
@@ -53,7 +53,7 @@ def main():
         migrate(read_secret_env('MG_MIGRATION_DATABASE_URL'))
     except (RuntimeError,ValueError,OSError):
         raise SystemExit('Own PostgreSQL migration failed.') from None
-    print('Own PostgreSQL migration version 8 verified.')
+    print(f'Own PostgreSQL migration version {EXPECTED_SCHEMA_VERSION} verified.')
 
 
 if __name__ == '__main__': main()

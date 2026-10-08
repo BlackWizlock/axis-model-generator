@@ -131,6 +131,7 @@ try:
  result=run(compose+['exec','-T','api','python','-c',http_proof_code],input=json.dumps({'mode':'create','fixture':fixture}))
  http_proof=json.loads(result.stdout)
  print('Actual production images upload/job/report/preview/thumbnail and private access passed')
+ print('Actual consent receipt and immutable exact document seeded before pg_dump')
 
 
  run(compose+['stop','worker'])
@@ -162,8 +163,9 @@ try:
  run(compose+['up','-d','--wait','--force-recreate','api','worker'])
  run(compose+['exec','-T','api','python','-c',active_code],input=json.dumps({'mode':'verify','proof':http_proof,'active':active}))
  print('Active-operation restore passed with preserved physical fencing')
- run(compose+['exec','-T','api','python','-c',http_proof_code],input=json.dumps({'mode':'verify','proof':http_proof}))
+ run(compose+['exec','-T','api','python','-c',http_proof_code],input=json.dumps({'mode':'verify','proof':http_proof,'withdrawConsent':True}))
  print('Restored private HTTP and artifact SHA256 verification passed')
+ print('Actual consent archive/receipt backup restore and preserved grant after withdrawal passed')
 
 except Exception as e:
  from urllib.parse import urlsplit

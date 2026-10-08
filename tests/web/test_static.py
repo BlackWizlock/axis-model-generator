@@ -14,7 +14,7 @@ class Html(HTMLParser):
 
 class StaticTests(unittest.TestCase):
     def test_same_shell_policy_and_support_real_links_and_no_inline_code(self):
-        for name in ('index','privacy','support'):
+        for name in ('index','privacy','support','analytics-consent'):
             with self.subTest(page=name):
                 html=Html(); html.feed((ROOT/'web'/f'{name}.html').read_text())
                 text=' '.join(html.text)
@@ -37,9 +37,9 @@ class StaticTests(unittest.TestCase):
             root=Path(directory);(root/'private.zip').write_text('private')
             app=make_test_app(settings_for(root))
             with TestClient(app,base_url='https://testserver') as client:
-                for url in ('/','/privacy','/support','/styles.css','/src/app.js','/vendor/three.module.js','/assets/axis-sign.png'):
+                for url in ('/','/privacy','/support','/analytics-consent','/styles.css','/src/app.js','/vendor/three.module.js','/assets/axis-sign.png'):
                     response=client.get(url);self.assertEqual(response.status_code,200,(url,response.text[:100]));self.assertIn("script-src 'self'",response.headers['content-security-policy']);self.assertEqual(response.headers['cache-control'],'no-store')
-                    if url in ('/','/privacy','/support'):
+                    if url in ('/','/privacy','/support','/analytics-consent'):
                         for directive in ('script-src','connect-src','img-src'):
                             policy=next(part for part in response.headers['content-security-policy'].split(';') if part.strip().startswith(directive+' '))
                             self.assertIn('https://mc.yandex.ru',policy)

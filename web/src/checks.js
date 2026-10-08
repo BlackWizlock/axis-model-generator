@@ -8,7 +8,7 @@ export function validateChecks(value,job) {
   return value;
 }
 export function completionText(job,checks) {
-  if (job.state !== 'completed') return job.state === 'running' ? 'Проверка выполняется' : 'Обработка ещё не завершена';
+  if (job.state !== 'completed') return ({running:'Проверка выполняется',failed:'Обработку не удалось завершить',cancelled:'Обработка отменена',interrupted:'Обработка прервана',deleted:'Задание удалено',deleting:'Задание удаляется'})[job.state] || 'Обработка ещё не завершена';
   const failed = checks.checks.filter(row => row.state === 'failed').length;
   const warnings = checks.checks.filter(row => row.state === 'warning').length;
   return `Проверка завершена${failed ? ', найдены ошибки' : ', полный успех не подтверждён'}. Ошибок проверок: ${failed}, предупреждений: ${warnings}. Непроверенные области указаны отдельно.`;
