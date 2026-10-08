@@ -1041,9 +1041,9 @@
       "sha256": "e535295d8edc2c8605ce8a396a3ffa77f355305eaa7c7234610bf93c704b04f5"
     },
     {
-      "bytes": 29015,
+      "bytes": 28887,
       "path": "web/styles.css",
-      "sha256": "945ec86feaf1fae63141b48f3f59529dbaa50a1a425391c531eb91c1f30e2a83"
+      "sha256": "87c2edaed737b4e595142550883db93361d3e619875dbe548011eb82ec336019"
     },
     {
       "bytes": 8908,
@@ -1158,5 +1158,5 @@
   ],
   "provenance": "sanitized_source_snapshot",
   "schema_version": 1,
-  "source_revision": "49e5bfc6d58aca67d80b725bb0d420d2ef7b5f9d"
+  "source_revision": "f0d239f9d6a1e96ccb46f417edded7aa3460ff17"
 }
