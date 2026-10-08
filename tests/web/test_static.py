@@ -40,7 +40,12 @@ class StaticTests(unittest.TestCase):
                 for url in ('/','/privacy','/support','/styles.css','/src/app.js','/vendor/three.module.js','/assets/axis-sign.png'):
                     response=client.get(url);self.assertEqual(response.status_code,200,(url,response.text[:100]));self.assertIn("script-src 'self'",response.headers['content-security-policy']);self.assertEqual(response.headers['cache-control'],'no-store')
                     if url in ('/','/privacy','/support'):
-                        self.assertIn('https://mc.yandex.ru',response.headers['content-security-policy'])
+                        for directive in ('script-src','connect-src','img-src'):
+                            policy=next(part for part in response.headers['content-security-policy'].split(';') if part.strip().startswith(directive+' '))
+                            self.assertIn('https://mc.yandex.ru',policy)
+                            self.assertIn('https://mc.yandex.com',policy)
+                        self.assertNotIn('unsafe-inline',response.headers['content-security-policy'])
+                        self.assertNotIn('unsafe-eval',response.headers['content-security-policy'])
                     else:
                         self.assertNotIn('mc.yandex',response.headers['content-security-policy'])
                 robots=client.get('/robots.txt');self.assertEqual(robots.status_code,200)

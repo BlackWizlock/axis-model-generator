@@ -556,9 +556,9 @@
       "sha256": "6eb1b00bf81ba7fcf892f4978314b9b7f9a2db078c988ffc35e9d4883ef1e649"
     },
     {
-      "bytes": 8940,
+      "bytes": 9006,
       "path": "src/model_generator/web/security.py",
-      "sha256": "f307d4fd70bc86d51a01da46ec3976a7340943e0f23c455566780496edfdb823"
+      "sha256": "ecf9be0957ee81d91f52e165dba05a7abcd8f7657f649fd755c8b7ad90467b4c"
     },
     {
       "bytes": 1982,
@@ -866,9 +866,9 @@
       "sha256": "63d1e7a9df8ee687d993476d5ec82288bcef7902b3d7b31692d7d1aa321c9767"
     },
     {
-      "bytes": 4712,
+      "bytes": 5191,
       "path": "tests/web/test_static.py",
-      "sha256": "03e9ec7f9df493ca3eaaa0d20983b2b1bb23a3a1eaadcdfa1491bcf3dd9609e9"
+      "sha256": "6094fcb1257d02748ec561dd49b0e5c04470649da168fd5f92a0f73bdae5d665"
     },
     {
       "bytes": 9895,
@@ -1158,5 +1158,5 @@
   ],
   "provenance": "sanitized_source_snapshot",
   "schema_version": 1,
-  "source_revision": "fa2902a6f16b11f9790cfe821af4cb4523387961"
+  "source_revision": "49e5bfc6d58aca67d80b725bb0d420d2ef7b5f9d"
 }
