@@ -14,7 +14,7 @@ class ReleaseGateTests(unittest.TestCase):
         (self.root/'images.json').write_text(json.dumps({'source_revision':self.sha,'images':self.images}))
         (self.root/'final-native.exit').write_text('0')
         (self.root/'final-native.log').write_text('Final exact native UI, ingress and production active restore acceptance passed')
-        (self.root/'diagnostics.log').write_text('Ran 246 tests\nRan 187 tests\ndiagnostics Docker acceptance passed.')
+        (self.root/'diagnostics.log').write_text('Ran 246 tests in 1.0s\nRan 187 tests in 1.0s\ndiagnostics Docker acceptance passed.')
         (self.root/'cold-native.exit').write_text('0')
         (self.root/'cold-native.log').write_text('Final native isolated cold recovery acceptance passed')
         scripts=self.root/'source/scripts';scripts.mkdir(parents=True)
@@ -25,6 +25,14 @@ class ReleaseGateTests(unittest.TestCase):
         (self.root/'cold-native-attestation.json').write_text(json.dumps({'runtime_source':self.sha,'runtime_images':release.manifest_image_ids({'images':self.images}),'helpers':hashes}))
     def tearDown(self):self.tmp.cleanup()
     def test_accepted_source_passes(self):release.evidence_gate(self.root,self.sha)
+    def test_additional_native_tests_pass_without_lowering_baseline(self):
+        (self.root/'diagnostics.log').write_text('Ran 255 tests in 1.0s\nRan 187 tests in 1.0s\ndiagnostics Docker acceptance passed.')
+        release.evidence_gate(self.root,self.sha)
+    def test_incomplete_or_reordered_native_suites_denied(self):
+        for counts in ((245,187),(255,186),(187,255),(255,), (255,187,246)):
+            (self.root/'diagnostics.log').write_text('\n'.join('Ran '+str(n)+' tests in 1.0s' for n in counts)+'\ndiagnostics Docker acceptance passed.')
+            with self.subTest(counts=counts),self.assertRaises(ValueError):release.evidence_gate(self.root,self.sha)
+
     def test_cold_failure_missing_marker_and_wrong_source_denied(self):
         for path,value in (('cold-native.exit','1'),('cold-native.log','partial'),('cold-native-attestation.json',json.dumps({'runtime_source':'b'*40,'helpers':{}}))):
             target=self.root/path;previous=target.read_text();target.write_text(value)
