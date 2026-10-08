@@ -1,0 +1,175 @@
+x-owned-labels: &owned-labels
+  com.axis.model-generator.project: axis-model-generator
+  com.axis.model-generator.worktree: ${MG_TEST_WORKTREE_NAME:-p0-exchange}
+  com.axis.model-generator.purpose: ${MG_TEST_PURPOSE:-auth-test}
+  org.opencontainers.image.revision: ${MG_TEST_REVISION:-uncommitted-local}
+services:
+  postgres:
+    image: postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    platform: ${MG_TEST_PLATFORM:-linux/amd64}
+    labels: *owned-labels
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/admin
+    command: ["postgres", "-c", "max_connections=32", "-c", "fsync=on", "-c", "synchronous_commit=on"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../scripts/web-test-db-init.sh:/docker-entrypoint-initdb.d/001-init.sh:ro
+    secrets: [admin, api, worker, migrator]
+    networks: [mg_test_db]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d model_generator"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+  tests:
+    image: ${MG_TEST_IMAGE:-axis-model-generator/p0-exchange:auth-test}
+    build:
+      context: ../..
+      dockerfile: deploy/web/Dockerfile.test
+      args:
+        BUILDKIT_BUILD_NAME: ${MG_TEST_BUILD_NAME:-axis-model-generator | p0-exchange | auth-test}
+        MG_BUILD_PURPOSE: ${MG_TEST_PURPOSE:-auth-test}
+        MG_BUILD_WORKTREE: ${MG_TEST_WORKTREE_NAME:-p0-exchange}
+        MG_BUILD_REVISION: ${MG_TEST_REVISION:-uncommitted-local}
+    platform: ${MG_TEST_PLATFORM:-linux/amd64}
+    labels: *owned-labels
+    # DNS fault tests change resolv.conf. Runtime and source stay immutable on
+    # separate read-only volumes; the harness filesystem can inject that fault.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 3072m
+    cpus: 1
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=4g"]
+    environment:
+      MG_DATABASE_URL_FILE: /run/secrets/api_dsn
+      MG_MIGRATION_DATABASE_URL_FILE: /run/secrets/migrator_dsn
+      MG_TEST_ADMIN_DATABASE_URL_FILE: /run/secrets/admin_dsn
+      MG_AUTH_KEY_FILE: /run/secrets/auth_key
+      MG_TEST_WORKER_DATABASE_URL_FILE: /run/secrets/worker_dsn
+      MG_DATA_ROOT: /tmp/mg-scratch
+      MG_JOURNAL_ROOT: /journal/api
+      MG_PUBLIC_ORIGIN: https://testserver
+      MG_TEST_MODE: "1"
+      MG_TEST_PLATFORM: ${MG_TEST_PLATFORM:-linux/amd64}
+      MG_S3_ENDPOINT: http://minio:9000
+      MG_S3_REGION: us-east-1
+      MG_S3_BUCKET: model-generator-test
+      MG_S3_PROXY_URL: http://s3-proxy:8080
+      MG_S3_PROFILE: ephemeral-emulator
+      MG_S3_ACCESS_KEY_FILE: /run/secrets/s3_access
+      MG_S3_SECRET_KEY_FILE: /run/secrets/s3_secret
+    volumes: [proof:/proof, test_runtime:/usr/local:ro, test_source:/app:ro, journal:/journal]
+    secrets: [api_dsn, migrator_dsn, admin_dsn, worker_dsn, auth_key, s3_access, s3_secret]
+    networks: [mg_test_db, mg_test_s3_proxy]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  minio:
+    image: ${MG_TEST_EMULATOR_IMAGE:-axis-model-generator/p0-exchange:storage-emulator-test}
+    build:
+      context: ../..
+      dockerfile: deploy/web/Dockerfile.s3-test-emulator
+      args:
+        BUILDKIT_BUILD_NAME: ${MG_TEST_EMULATOR_BUILD_NAME:-axis-model-generator | p0-exchange | storage-emulator-test}
+        MG_BUILD_WORKTREE: ${MG_TEST_WORKTREE_NAME:-p0-exchange}
+        MG_BUILD_REVISION: ${MG_TEST_REVISION:-uncommitted-local}
+    platform: ${MG_TEST_PLATFORM:-linux/amd64}
+    labels: *owned-labels
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/s3_access
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/s3_secret
+    secrets: [s3_access, s3_secret]
+    volumes: [s3data:/data]
+    networks: [mg_test_s3_backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/minio/health/live',timeout=2)"]
+      interval: 1s
+      timeout: 3s
+      retries: 120
+  worker-test:
+    image: ${MG_TEST_IMAGE:-axis-model-generator/p0-exchange:jobs-test}
+    platform: ${MG_TEST_PLATFORM:-linux/amd64}
+    labels: *owned-labels
+    init: true
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2048m
+    cpus: 1
+    pids_limit: 64
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001"]
+    command: [python, /app/tests/web/fixtures/worker_probe.py, serve]
+    environment:
+      MG_DATABASE_ROLE: mg_worker
+      MG_DATABASE_URL_FILE: /run/secrets/worker_dsn
+      MG_DATA_ROOT: /scratch
+      MG_JOURNAL_ROOT: /journal/worker
+      MG_PUBLIC_ORIGIN: https://testserver
+      MG_TEST_MODE: "1"
+      MG_TEST_PROCESS_MODE: ${MG_TEST_PROCESS_MODE:-normal}
+      MG_S3_ENDPOINT: http://minio:9000
+      MG_S3_REGION: us-east-1
+      MG_S3_BUCKET: model-generator-test
+      MG_S3_PROXY_URL: http://s3-proxy:8080
+      MG_S3_PROFILE: ephemeral-emulator
+      MG_S3_ACCESS_KEY_FILE: /run/secrets/s3_access
+      MG_S3_SECRET_KEY_FILE: /run/secrets/s3_secret
+    volumes: [worker_scratch:/scratch, journal:/journal]
+    secrets: [worker_dsn, s3_access, s3_secret]
+    networks: [mg_test_db, mg_test_s3_proxy]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  s3-proxy:
+    image: python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
+    platform: ${MG_TEST_PLATFORM:-linux/amd64}
+    labels: *owned-labels
+    command: ["python", "/proxy.py"]
+    volumes: ["./s3-test-proxy.py:/proxy.py:ro"]
+    networks: [mg_test_s3_proxy, mg_test_s3_backend]
+networks:
+  mg_test_s3_proxy:
+    internal: true
+  mg_test_s3_backend:
+    internal: true
+  mg_test_db:
+    internal: true
+volumes:
+  pgdata:
+  proof:
+  test_runtime:
+  test_source:
+  s3data:
+  journal:
+  worker_scratch:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=2147483648,uid=10001,gid=10001,mode=0700
+secrets:
+  s3_access:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/s3_access
+  s3_secret:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/s3_secret
+  admin:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/admin
+  api:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/api
+  worker:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/worker
+  migrator:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/migrator
+  api_dsn:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/api_dsn
+  migrator_dsn:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/migrator_dsn
+  admin_dsn:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/admin_dsn
+  worker_dsn:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/worker_dsn
+  auth_key:
+    file: ${MG_TEST_SECRET_ROOT:-../../.web-test-runtime}/auth_key

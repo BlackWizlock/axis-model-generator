@@ -1,0 +1,13 @@
+FROM postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4 AS pgclient
+RUN mkdir /pg-runtime && for binary in pg_dump pg_restore psql; do cp --parents /usr/lib/postgresql/16/bin/$binary /pg-runtime; ldd /usr/lib/postgresql/16/bin/$binary | awk '{for(i=1;i<=NF;i++) if($i ~ /^\//) print $i}' | while read library; do destination="/pg-runtime$(echo "$library" | sed -e 's,^/lib/,/usr/lib/,' -e 's,^/lib64/,/usr/lib64/,')"; mkdir -p "$(dirname "$destination")"; cp -L "$library" "$destination"; done; done
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
+COPY --from=pgclient /pg-runtime/ /
+WORKDIR /app
+COPY requirements-web.lock ./
+RUN python -m pip install --root-user-action=ignore --no-cache-dir --require-hashes -r requirements-web.lock && python -m pip check && /usr/lib/postgresql/16/bin/pg_dump --version && /usr/lib/postgresql/16/bin/pg_restore --version && /usr/lib/postgresql/16/bin/psql --version
+COPY src ./src
+ENV PYTHONPATH=/app/src
+COPY scripts/backup-web-db.py scripts/restore-web-db.py scripts/web-backup-common.py ./scripts/
+ENV PATH=/usr/lib/postgresql/16/bin:$PATH
+USER 10001:10001
+ENTRYPOINT ["python", "scripts/backup-web-db.py"]

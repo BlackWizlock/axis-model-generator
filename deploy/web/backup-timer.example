@@ -1,0 +1,14 @@
+# Units must be installed only after a successful ephemeral restore and YC IAM gate.
+# model-generator-backup.timer
+[Unit]
+Description=Own Model Generator database daily backup
+[Timer]
+OnCalendar=*-*-* 03:15:00 Europe/Moscow
+Persistent=true
+[Install]
+WantedBy=timers.target
+
+# model-generator-backup.service must run an independently prepared backup image
+# with pg_dump 16, file secrets, own DB network and own backup-only S3 proxy.
+# The runtime containers must not receive these backup credentials.
+# Configure backup bucket lifecycle to expire objects after seven days.

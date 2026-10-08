@@ -1,0 +1,32 @@
+{
+  "admin": {"disabled": true},
+  "apps": {
+    "http": {
+      "servers": {
+        "model": {
+          "listen": ["unix//run/ingress/http.sock"],
+          "automatic_https": {"disable": true},
+          "routes": [
+            {
+              "match": [{"host": ["model.axisconsult.ru"]}],
+              "handle": [{
+                "handler": "reverse_proxy",
+                "upstreams": [{"dial": "mg-api:8000"}],
+                "headers": {"request": {
+                  "set": {
+                    "X-Forwarded-For": ["{http.request.header.X-Model-Client-IP}"],
+                    "X-Forwarded-Proto": ["https"],
+                    "X-Forwarded-Host": ["model.axisconsult.ru"]
+                  },
+                  "delete": ["X-Model-Client-IP"]
+                }}
+              }],
+              "terminal": true
+            },
+            {"handle": [{"handler": "static_response", "status_code": 421}]}
+          ]
+        }
+      }
+    }
+  }
+}

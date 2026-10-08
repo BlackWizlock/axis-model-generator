@@ -1,0 +1,20 @@
+# check=error=true
+FROM golang:1.24.8-bookworm@sha256:4ed690d6649d63c312b99a6120025ec79ce3b542968a37da53d6236c7c61a848 AS build
+WORKDIR /source
+RUN curl --fail --silent --show-error --location https://codeload.github.com/minio/minio/tar.gz/9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a -o /source.tar.gz \
+    && echo '45521908307306e925c98d629e1c17d78c8b72b6ee242b1bfb1409f7d8ee5841  /source.tar.gz' | sha256sum -c - \
+    && tar -xzf /source.tar.gz --strip-components=1 \
+    && CGO_ENABLED=0 GOTOOLCHAIN=local go build -p 2 -trimpath -o /minio .
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
+COPY --from=build /minio /usr/local/bin/minio
+COPY --from=build /source/LICENSE /usr/share/minio/LICENSE
+ARG MG_BUILD_WORKTREE=p0-exchange
+ARG MG_BUILD_REVISION=uncommitted-local
+LABEL com.axis.model-generator.project="axis-model-generator" \
+      com.axis.model-generator.worktree="${MG_BUILD_WORKTREE}" \
+      com.axis.model-generator.purpose="storage-emulator-test" \
+      org.opencontainers.image.revision="${MG_BUILD_REVISION}" \
+      org.opencontainers.image.source="https://github.com/minio/minio" \
+      com.axis.model-generator.source-sha256="45521908307306e925c98d629e1c17d78c8b72b6ee242b1bfb1409f7d8ee5841"
+ENTRYPOINT ["minio"]
+CMD ["server", "/data", "--console-address", ":9001"]

@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "previewBackend": "python-cpu",
+  "python": "3.14.8",
+  "pythonImage": "python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83",
+  "nodeImage": "node:26.10.0-bookworm-slim@sha256:3ffc19ea878019d9e9ae8971732ad4a03cda44f167107173174b60ed7c65bed3",
+  "libseccomp2": "2.5.4-1+deb12u1",
+  "locks": {
+    "requirements-web.lock": "51cc2f6a48fcdc02f0267a14f84c92fe8c8334fc870fa27dd3b88de0ddd816cf",
+    "web/package-lock.json": "1c4fe36f50a9c5328cebfb124f66112d301f4e49a43259c224f14defd12a9acf"
+  },
+  "releaseGates": [
+    "native-linux-amd64",
+    "YC-region-private-IAM",
+    "existing-Caddy-TLS-network-preflight",
+    "actual-backup-restore"
+  ],
+  "postgresImage": "postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4",
+  "backupTools": "PostgreSQL 16.15 official image clients and shared libraries"
+}

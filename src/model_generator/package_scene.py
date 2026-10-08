@@ -152,7 +152,8 @@ def _key(value):
 
 class _Inspector:
 
-    def __init__(self, package, limits):
+    def __init__(self, package, limits, observer=None):
+        self.observer = observer
         self.package = package
         self.limits = limits
         self.files = {item.path: item for item in package.manifest.files}
@@ -216,6 +217,13 @@ class _Inspector:
             if dtype == 'float64':
                 for value, in struct.iter_unpack('<d', self.package.members[descriptor.path]):
                     _number(value, file=descriptor.path)
+
+    def observe(self, phase, callback, *args):
+        if self.observer: self.observer(phase, 'checking')
+        start = len(self.findings)
+        value = callback(*args)
+        if self.observer: self.observer(phase, 'passed', self.findings[start:])
+        return value
 
     def unique(self, rows, fields, id_field):
         result = {}
@@ -700,18 +708,18 @@ class _Inspector:
         _id(scene['root_document_id'])
         if scene['snapshot_id'] != self.package.manifest.metadata['snapshot_id']:
             _error('Scene snapshot differs from manifest', rule='package.snapshot')
-        self.array_layouts()
-        documents = self.documents(scene)
-        links = self.links(scene, documents)
-        materials = self.materials(scene)
-        meshes = self.meshes(scene, materials)
-        project, residuals, height = self.coordinates(scene)
-        instances, keys, bounds, project_bounds, rendered, mirrored = self.instances(scene,
+        self.observe('scene.arrays', self.array_layouts)
+        documents = self.observe('scene.documents', self.documents, scene)
+        links = self.observe('scene.links', self.links, scene, documents)
+        materials = self.observe('scene.materials', self.materials, scene)
+        meshes = self.observe('scene.meshes', self.meshes, scene, materials)
+        project, residuals, height = self.observe('scene.coordinates', self.coordinates, scene)
+        instances, keys, bounds, project_bounds, rendered, mirrored = self.observe('scene.instances', self.instances, scene,
             meshes,
             documents,
             links,
             project)
-        self.ifc(scene, keys)
+        self.observe('scene.ifc', self.ifc, scene, keys)
         self.state('parameters',
             'partial' if documents else 'missing',
             'Document revisions and instance identifiers structurally inspected')
@@ -751,6 +759,7 @@ class _Inspector:
             'mirrored_instances': mirrored,
             'control_point_residuals': residuals,
             'height_residual': height}
+        if self.observer: self.observer('scene.complete', 'passed', self.findings)
         return SceneInspection(scene, measurements, self.capabilities, tuple(self.findings))
 
 
@@ -782,9 +791,9 @@ def _noncollinear(points):
     return False
 
 
-def inspect_package_scene(package: PackageData, limits: PackageLimits | None=None) -> SceneInspection:
+def inspect_package_scene(package: PackageData, limits: PackageLimits | None=None, observer=None) -> SceneInspection:
     """Inspect data in memory; never open, decode pixels or execute resources."""
-    inspector = _Inspector(package, limits or PackageLimits())
+    inspector = _Inspector(package, limits or PackageLimits(), observer)
     try:
         return inspector.inspect()
     except PackageError as error:

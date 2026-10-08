@@ -44,15 +44,17 @@ def _add_error(report, error):
     return report
 
 
-def validate_package_bytes(data: bytes, limits: PackageLimits | None = None) -> Report:
+def validate_package_bytes(data: bytes, limits: PackageLimits | None = None, observer=None) -> Report:
     """Content failures are reports; structurally available is not source fidelity."""
     limits = limits or PackageLimits()
     report = _new_report(hashlib.sha256(data).hexdigest())
+    if observer: observer("input.package", "checking")
     try:
         package = read_package_bytes(data, limits)
+        if observer: observer("input.package", "passed")
         report.files = [{"file": item.path, "bytes": item.bytes, "sha256": item.sha256,
                          "role": item.role} for item in package.manifest.files]
-        inspection = inspect_package_scene(package, limits)
+        inspection = inspect_package_scene(package, limits, observer)
         for item in report.files:
             if item["file"] == package.manifest.scene_path:
                 item.update(inspection.measurements)
@@ -63,7 +65,7 @@ def validate_package_bytes(data: bytes, limits: PackageLimits | None = None) -> 
     return report
 
 
-def validate_package_path(path: Path, limits: PackageLimits | None = None) -> Report:
+def validate_package_path(path: Path, limits: PackageLimits | None = None, observer=None) -> Report:
     """Bound reads independently of ZIP metadata; leave OSError to the caller."""
     limits = limits or PackageLimits()
     with path.open("rb") as stream:
@@ -78,4 +80,4 @@ def validate_package_path(path: Path, limits: PackageLimits | None = None) -> Re
     if len(data) > limits.input_bytes:
         return _add_error(_new_report(), PackageError(
             "package.budget", "Input bytes exceed budget", actual=len(data), expected=limits.input_bytes))
-    return validate_package_bytes(data, limits)
+    return validate_package_bytes(data, limits, observer)

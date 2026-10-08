@@ -1,7 +1,7 @@
-FROM python:3.14.5-slim@sha256:7d8de339aa8619f9b25e7d474d687ae4f6ef9704adad90a136af0f485adeccb7
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace/src
 WORKDIR /workspace
 COPY --chown=10001:10001 source/ /workspace/
 USER 10001:10001
-CMD ["python", "-m", "unittest", "discover", "-s", "tests", "-v"]
+CMD ["python", "-c", "from pathlib import Path; import unittest; suite=unittest.TestSuite(); [suite.addTests(unittest.defaultTestLoader.discover('tests',pattern=p.name)) for p in sorted(Path('tests').glob('test_*.py'))]; result=unittest.TextTestRunner(verbosity=1).run(suite); raise SystemExit(not result.wasSuccessful())"]

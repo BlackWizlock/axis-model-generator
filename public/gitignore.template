@@ -11,3 +11,6 @@ node_modules/
 .next/
 dist/
 *.zip
+_scratch/
+.web-test-runtime/
+web/coverage/

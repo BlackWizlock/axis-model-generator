@@ -1,0 +1,26 @@
+FROM node:26.10.0-bookworm-slim@sha256:3ffc19ea878019d9e9ae8971732ad4a03cda44f167107173174b60ed7c65bed3 AS frontend
+WORKDIR /app
+COPY web/package.json web/package-lock.json ./web/
+RUN npm --prefix web ci
+COPY web ./web
+COPY scripts/build-web.mjs scripts/build-sitemap.mjs ./scripts/
+RUN node scripts/build-web.mjs
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
+RUN test "$(dpkg-query -W -f='${Version}' libseccomp2)" = '2.5.4-1+deb12u1'
+WORKDIR /app
+COPY requirements-web.lock requirements-web-test.lock ./
+RUN python -m pip install --root-user-action=ignore --no-cache-dir --require-hashes -r requirements-web.lock && python -m pip check
+COPY src ./src
+COPY workers ./workers
+COPY scripts/web-healthcheck.py scripts/web-worker-healthcheck.py ./scripts/
+COPY deploy/web/runtime-manifest.json ./deploy/web/runtime-manifest.json
+ENV PYTHONPATH=/app/src PYTHONDONTWRITEBYTECODE=1
+RUN mkdir /journal && chown 10001:10001 /journal && chmod 700 /journal
+USER 10001:10001
+COPY --from=frontend /app/web/dist ./web/dist
+COPY web/index.html web/privacy.html web/support.html web/styles.css ./web/
+ARG MG_BUILD_REVISION=uncommitted-local
+ARG MG_BUILD_WORKTREE=uncommitted-local
+LABEL org.opencontainers.image.revision="${MG_BUILD_REVISION}" \
+      com.axis.model-generator.worktree="${MG_BUILD_WORKTREE}"
+ENTRYPOINT ["python", "-m", "uvicorn", "model_generator.web.app:create_default_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-proxy-headers"]

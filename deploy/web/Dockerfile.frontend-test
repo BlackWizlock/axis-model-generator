@@ -1,0 +1,12 @@
+# check=error=true
+FROM node:26.10.0-bookworm-slim@sha256:3ffc19ea878019d9e9ae8971732ad4a03cda44f167107173174b60ed7c65bed3
+WORKDIR /app
+COPY web/package.json web/package-lock.json ./web/
+RUN npm --prefix web ci
+COPY web ./web
+COPY scripts/build-web.mjs scripts/build-sitemap.mjs ./scripts/
+RUN npm --prefix web test && npm --prefix web run lint && npm --prefix web run test:coverage && node scripts/build-web.mjs
+
+ARG MG_BUILD_WORKTREE=p0-ui-live
+ARG MG_BUILD_REVISION=uncommitted-local
+LABEL com.axis.model-generator.project="axis-model-generator" com.axis.model-generator.worktree="${MG_BUILD_WORKTREE}" com.axis.model-generator.purpose="ui-test" org.opencontainers.image.revision="${MG_BUILD_REVISION}"
