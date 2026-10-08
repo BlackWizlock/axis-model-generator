@@ -5,7 +5,7 @@ import time
 import psycopg
 from .config import read_secret_env, validate_database_url
 
-EXPECTED_SCHEMA_VERSION = 9
+EXPECTED_SCHEMA_VERSION = 10
 MIGRATION_LOCK = 0x4d474d494752
 
 

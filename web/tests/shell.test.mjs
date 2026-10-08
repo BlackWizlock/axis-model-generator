@@ -12,3 +12,11 @@ test('shared mobile menu Escape restores focus and navigation closes; manual lig
   events['menu-toggle:click']();events['site-menu:click']({target:{closest:()=>({})}});assert.equal(nodes['menu-toggle'].getAttribute('aria-expanded'),'false');events['theme-toggle:click']();assert.equal(classes.has('light'),false);
  }finally{globalThis.document=previous;}
 });
+
+import {readFile} from 'node:fs/promises';
+test('static picker is closed until config and contains no native allowlist',async()=>{
+ const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+ const picker=html.match(/<input[^>]+id="input-file"[^>]*>/)[0];
+ assert.match(picker,/disabled/);assert.doesNotMatch(picker,/accept=/);
+ assert.match(html,/id="input-format-reasons"/);assert.doesNotMatch(html,/Для RVT нужен подготовленный пакет/);
+});

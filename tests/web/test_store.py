@@ -133,3 +133,34 @@ class StoreTests(unittest.TestCase):
             with self.assertRaises((KeyError,ValueError)): StorageSettings.from_env()
         self.assertNotIn(str(settings.access_key_file),repr(settings))
         self.assertNotIn(str(settings.secret_key_file),repr(settings))
+
+    def test_unavailable_engine_does_not_consume_quota(self):
+        with self.assertRaises(ApiError) as error:
+            self.store.reserve_upload(self.owner, 'rvt', 'model.rvt', 1,
+                                      'a'*64, self.now, descriptor_version=1)
+        self.assertEqual(error.exception.code, 'engine_unavailable')
+        with self.db.connect() as con:
+            self.assertEqual(con.execute('SELECT count(*) AS n FROM uploads').fetchone()['n'], 0)
+            self.assertEqual(con.execute('SELECT count(*) AS n FROM usage_events').fetchone()['n'], 0)
+            self.assertEqual(con.execute("SELECT storage_bytes,active_uploads FROM quota_scopes WHERE scope='global'").fetchone(), {'storage_bytes':0,'active_uploads':0})
+
+    def test_versioned_reservations_and_claim_use_fixed_names(self):
+        for version,owner,suffix in ((0,self.owner,'input.zip'),(1,self.other,'input.bin')):
+            with self.subTest(version=version):
+                result=self.store.reserve_upload(owner,'zip-fbx','e\u0301.zip',1,'a'*64,self.now,descriptor_version=version)
+                self.assertEqual(result['descriptorVersion'],version)
+                self.assertTrue(self.store.intent(owner,result['id']).key.endswith('/'+suffix))
+                claimed=self.store.claim_content(owner,result['id'])
+                self.assertTrue(self.store.intent(owner,result['id']).key.endswith('/'+suffix))
+                self.assertEqual(claimed['descriptor_version'],version)
+                self.assertEqual(claimed['input_descriptor'],None if version==0 else
+                    dict(version=1,kind='zip-fbx',displayName='é.zip',bytes=1,sha256='a'*64))
+                self.assertEqual(self.store.private_path('uploads',result['id'],suffix).name,suffix)
+
+    def test_invalid_version_fails_before_quota(self):
+        for version in (True,False,-1,2,'1',None,1.0):
+            with self.subTest(version=version),self.assertRaises(ApiError) as error:
+                self.store.reserve_upload(self.owner,'zip-fbx','name.zip',1,'a'*64,self.now,descriptor_version=version)
+            self.assertEqual(error.exception.code,'invalid_upload')
+        with self.db.connect() as con:
+            self.assertEqual(con.execute('SELECT count(*) AS n FROM uploads').fetchone()['n'],0)

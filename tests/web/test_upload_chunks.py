@@ -38,12 +38,68 @@ class ChunkHTTPTests(unittest.TestCase):
             if row['state']=='ready': return row
             time.sleep(.03)
         self.fail('Finalization did not become ready: '+str(row))
+    def test_version_one_retry_status_restart_and_owner_privacy(self):
+        id=self.reserve(b'x',descriptorVersion=1)
+        first=self.put(id,1,b'x'); self.assertEqual(first.status_code,200,first.text)
+        self.assertEqual(first.json()['descriptorVersion'],1)
+        replay=self.put(id,1,b'x'); self.assertEqual(replay.status_code,200,replay.text)
+        self.assertEqual(replay.json()['descriptorVersion'],1)
+        expected=dict(version=1,kind='zip-fbx',displayName='source.zip',bytes=1,sha256=digest(b'x'))
+        cookies=__import__('httpx').Cookies(self.client.cookies)
+        helpers.close_fixture_client(self.client)
+        self.app=helpers.make_test_app(self.app.state.settings)
+        self.client=helpers.enter_fixture_client(self,self.app,cookies=cookies)
+        self.store=self.app.state.storage
+        self.assertEqual(self.status(id)['descriptorVersion'],1)
+        self.assertEqual(self.client.get('/api/uploads').json()['uploads'][0]['descriptorVersion'],1)
+        with self.app.state.db.connect() as con:
+            self.assertEqual(con.execute('SELECT input_descriptor FROM uploads WHERE id=%s',(id,)).fetchone()['input_descriptor'],expected)
+        self.assertEqual(self.ready(id)['descriptorVersion'],1)
+        self.assertTrue(self.store.intent(self.user['userId'],id).key.endswith('/input.bin'))
+        self.client.cookies.clear(); other=helpers.register_login(self.client,'descriptor_other')
+        self.assertEqual(self.client.get('/api/uploads/'+id).status_code,404)
+        self.assertEqual(self.client.put('/api/uploads/'+id+'/chunks/1',content=b'x',headers={'Origin':'https://testserver','X-CSRF-Token':other['csrf']}).status_code,404)
+
+    def test_api_requires_exact_descriptor_version_and_closed_metadata(self):
+        value=dict(kind='zip-fbx',displayName='source.zip',bytes=1,sha256=digest(b'x'))
+        for version in (True,False,-1,2,'1',None,1.0):
+            with self.subTest(version=version):
+                response=self.client.post('/api/uploads',json={**value,'descriptorVersion':version},headers=self.headers)
+                self.assertEqual(response.status_code,422,response.text)
+        for field in ('resources','rootModel','inputDescriptor'):
+            response=self.client.post('/api/uploads',json={**value,'descriptorVersion':1,field:{}},headers=self.headers)
+            self.assertEqual(response.status_code,422,response.text)
+        self.assertEqual(self.status(self.reserve(b'x'))['descriptorVersion'],0)
+
+    def test_unavailable_engine_does_not_consume_guest_upload_budget(self):
+        self.client.cookies.clear()
+        guest=self.client.post('/api/auth/guest',headers={'Origin':'https://testserver'})
+        self.assertEqual(guest.status_code,200,guest.text)
+        headers={'Origin':'https://testserver','X-CSRF-Token':guest.json()['csrfToken']}
+        response=self.client.post('/api/uploads',json=dict(kind='rvt',displayName='model.rvt',bytes=1,sha256=digest(b'x'),descriptorVersion=1),headers=headers)
+        self.assertEqual(response.status_code,422,response.text)
+        self.assertEqual(response.json()['error']['code'],'engine_unavailable')
+        with self.app.state.db.connect() as con:
+            self.assertEqual(con.execute('SELECT count(*) AS n FROM uploads').fetchone()['n'],0)
+            self.assertEqual(con.execute("SELECT count(*) AS n FROM auth_attempts WHERE action='guest-upload'").fetchone()['n'],0)
+            self.assertEqual(con.execute("SELECT count(*) AS n FROM usage_events WHERE action='upload'").fetchone()['n'],0)
+
+    def test_version_one_single_put_ready_dto(self):
+        id=self.reserve(b'x',descriptorVersion=1)
+        response=self.client.put('/api/uploads/'+id+'/content',content=b'x',headers={**self.headers,'Content-Type':'application/octet-stream'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['descriptorVersion'],1)
+        self.assertEqual(self.status(id)['descriptorVersion'],1)
+        self.assertTrue(self.store.intent(self.user['userId'],id).key.endswith('/input.bin'))
+
     def test_two_requests_durable_ledger_replay_and_final_sha(self):
         data=b'x'*CHUNK+b'tail'; id=self.reserve(data)
         first=self.put(id,1,data[:CHUNK]); self.assertEqual(first.status_code,200,first.text)
         self.assertEqual(first.json()['acknowledgedBytes'],CHUNK)
+        self.assertEqual(first.json()['descriptorVersion'],0)
         with patch.object(self.store.objects.client,'upload_part',side_effect=AssertionError('ack replay must not write')):
             replay=self.put(id,1,data[:CHUNK]); self.assertEqual(replay.status_code,200,replay.text)
+        self.assertEqual(replay.json()['descriptorVersion'],0)
         self.assertEqual(self.put(id,2,data[CHUNK:]).status_code,200)
         row=self.ready(id); self.assertEqual(row['acknowledgedBytes'],len(data))
         with self.app.state.db.connect() as con:

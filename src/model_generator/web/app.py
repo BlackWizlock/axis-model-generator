@@ -8,6 +8,7 @@ import shutil
 import time
 from uuid import uuid4
 from fastapi import FastAPI,Request
+from model_generator.input_formats import public_formats
 from starlette.exceptions import HTTPException
 from .lock_identity import initialize,valid
 from .config import Settings
@@ -143,7 +144,8 @@ def create_app(settings: Settings) -> FastAPI:
     async def config(request: Request):
         await public_limit(request)
         from .jobs import AXES
-        return {'inputKinds':['zip-fbx','portable-package'],'profileStatus':'research',
+        formats=public_formats()
+        return {'inputFormats':formats,'inputKinds':[row['id'] for row in formats if row['upload']],'profileStatus':'research',
                 'coverage':dict(AXES),'sourceLink':settings.source_url,
                 'capabilities':{kind:{'availability':'unavailable','reason':'generation_not_implemented'} for kind in ('npm','vpm','ifc')},
                 'plugin':{'available':False},

@@ -2,12 +2,13 @@ import './shell.js';
 import {trackGoal,watchDiagnostic,observeDiagnostic} from './analytics.js';
 import {getChecks,renderChecks,completionText,runSourceLabel} from './checks.js';
 import {api,ApiError,artifactPath,setCsrfToken} from './api.js';
+import {allowedExtensions,acceptsFile,unavailableFormatText,rejectedFileText} from './input-formats.js';
 import {guestSession} from './auth.js';
 import {uploadFile,UPLOAD_CAP,uploadStageText} from './upload.js';
 import {getJobs,getJob,createJob,cancelJob,deleteJob,startPolling,statusText,terminal,jobAxes,jobArtifacts} from './jobs.js';
 import {mountPreview,previewReason} from './preview.js';
 const byId=id=>document.getElementById(id);
-const state={user:null,poller:null,upload:null,viewer:null,selected:null,demo:false,selectionEpoch:0,selectedFingerprint:null,jobs:[],cursor:null,limits:{uploadBytes:UPLOAD_CAP}};
+const state={inputFormats:null,user:null,poller:null,upload:null,viewer:null,selected:null,demo:false,selectionEpoch:0,selectedFingerprint:null,jobs:[],cursor:null,limits:{uploadBytes:UPLOAD_CAP}};
 function message(id,text,error=false){const node=byId(id);node.textContent=text;node.classList.toggle('error',error);node.setAttribute('role',error?'alert':'status');node.setAttribute('aria-live',error?'assertive':'polite');}
 const safeError=error=>error instanceof ApiError?error.message:error?.name==='AbortError'?'Действие отменено.':'Не удалось выполнить действие. Попробуйте ещё раз.';
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(className)node.className=className;return node;}
@@ -16,27 +17,38 @@ function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('thumbnai
 function setUser(user){
  state.user=user;state.poller?.stop();state.poller=null;
  byId('upload-submit').disabled=!user;
- if(user){state.limits=user.limits||state.limits;byId('upload-limit').textContent=`До ${Math.floor(Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)/1024/1024)} MiB · доступ к заданию и результатам до 24 часов`;state.poller=startPolling(refreshJobs);checkChosenFile();}
+ if(user){state.limits={...state.limits,...user.limits,inputFormats:state.inputFormats};byId('upload-limit').textContent=`До ${Math.floor(Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)/1024/1024)} MiB · доступ к заданию и результатам до 24 часов`;state.poller=startPolling(refreshJobs);checkChosenFile();}
  else{state.selectionEpoch++;state.upload?.abort();state.jobs=[];state.selected=null;byId('jobs-list').replaceChildren(element('p','Здесь появятся модели из этой сессии.','empty-jobs'));resetPreview();byId('viewer').textContent='Откройте демонстрацию или результат своей модели.';byId('checks-list').replaceChildren();byId('checks-summary').textContent='Не удалось открыть приватную сессию. Следуйте инструкции под формой загрузки.';setCsrfToken(null);}
 }
 function checkChosenFile(){
  const file=byId('input-file').files[0];
- if(!file){byId('upload-submit').disabled=!state.user;return;}
- const raw=file.name.toLowerCase().endsWith('.rvt');
- if(raw){message('upload-message','Для RVT нужен подготовленный пакет из Windows Revit. Плагин ещё не выпущен. Сейчас можно загрузить ZIP с FBX или переносимый пакет v1.',true);byId('upload-submit').disabled=true;return;}
- if(!file.name.toLowerCase().endsWith('.zip')){message('upload-message','Этот формат пока не поддерживается. Выберите подготовленный ZIP.',true);byId('upload-submit').disabled=true;return;}
- if(file.size>Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)){message('upload-message','Файл превышает допустимый размер. Выберите меньший пакет.',true);byId('upload-submit').disabled=true;return;}
- byId('upload-submit').disabled=!state.user||!!state.upload;
+ if(!allowedExtensions(state.inputFormats)){message('upload-message','Загрузка недоступна. Не удалось получить доступные форматы сервера.',true);byId('upload-submit').disabled=true;return false;}
+ if(!file){byId('upload-submit').disabled=!state.user||!!state.upload;return false;}
+ if(!acceptsFile(file,byId('input-kind').value,state.inputFormats)){message('upload-message',rejectedFileText(file,state.inputFormats),true);byId('upload-submit').disabled=true;return false;}
+ if(!Number.isSafeInteger(file.size)||file.size<1||file.size>Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)){message('upload-message','Файл превышает допустимый размер или пуст. Выберите другой файл.',true);byId('upload-submit').disabled=true;return false;}
+ byId('upload-submit').disabled=!state.user||!!state.upload;return !!state.user&&!state.upload;
 }
-byId('input-file').addEventListener('change',checkChosenFile);
+function setInputFormats(rows){
+ state.inputFormats=rows;state.limits.inputFormats=rows;
+ const extensions=allowedExtensions(rows);byId('input-file').setAttribute('accept',extensions);byId('input-file').disabled=!extensions;
+ const select=byId('input-kind'),selected=select.value;
+ const labels={'portable-package':'Переносимый пакет v1','zip-fbx':'ZIP с FBX'};
+ select.replaceChildren(...rows.filter(row=>row.upload).map(row=>{const option=element('option',labels[row.id]||row.id.toUpperCase());option.value=row.id;return option;}));
+ select.value=rows.find(row=>row.upload&&row.id===selected)?.id||rows.find(row=>row.upload)?.id||'';
+ byId('input-format-reasons').replaceChildren(...rows.filter(row=>!row.upload).map(row=>element('p',unavailableFormatText(row),'small')));
+ checkChosenFile();
+}
+function chosenFileChanged(){if(checkChosenFile())message('upload-message','');}
+byId('input-kind').addEventListener('change',chosenFileChanged);
+byId('input-file').addEventListener('change',chosenFileChanged);
 const dropZone=byId('upload-zone');
 dropZone.addEventListener('dragover',event=>{event.preventDefault();dropZone.classList.add('dragging');});
 dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragging'));
-dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('dragging');if(state.upload||!event.dataTransfer?.files.length)return;byId('input-file').files=event.dataTransfer.files;checkChosenFile();});
+dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('dragging');if(state.upload||!event.dataTransfer?.files.length)return;byId('input-file').files=event.dataTransfer.files;chosenFileChanged();});
 const localDate=new Date();byId('submission-date').value=`${localDate.getFullYear()}-${String(localDate.getMonth()+1).padStart(2,'0')}-${String(localDate.getDate()).padStart(2,'0')}`;
 function updateUploadHeartbeat(started){byId('upload-heartbeat').textContent=`${uploadStageText(state.uploadPhase)} · последний ответ сервера: ${state.uploadReply?`${Math.floor((Date.now()-state.uploadReply)/1000)} с назад`:'ещё не получен'}. Время ожидания: ${Math.floor((Date.now()-started)/1000)} с.`;}
 byId('upload-form').addEventListener('submit',async event=>{
- event.preventDefault();if(!state.user||state.upload)return;const file=byId('input-file').files[0];if(!file)return;
+ event.preventDefault();if(!state.user||state.upload)return;const file=byId('input-file').files[0];if(!checkChosenFile())return;
  state.selectionEpoch++;state.selected=null;state.demo=false;state.selectedFingerprint=null;state.checkSummary=null;state.checkFingerprint=null;resetPreview();byId('preview-provenance').textContent='НОВЫЙ ПАКЕТ';byId('viewer').textContent='Новый пакет. Результат появится после обработки.';message('preview-message','');byId('checks-list').replaceChildren();byId('checks-summary').textContent='Новый пакет. Проверки начнутся после принятия файла сервером.';
  const controller=new AbortController();state.upload=controller;byId('upload-submit').disabled=true;byId('upload-cancel').hidden=false;byId('upload-progress').hidden=false;byId('upload-progress').value=0;
  trackGoal('upload_started');
@@ -117,9 +129,9 @@ window.addEventListener('pageshow',async event=>{
  if(state.selected)await openJob(state.selected,{scroll:false});else if(state.demo)byId('demo-button').click();
 });
 async function start(){
- try{const config=await api('/api/config');if(config.sourceLink!=='https://github.com/BlackWizlock/axis-model-generator')throw new ApiError('invalid_config');state.limits=config.limits||state.limits;message('service-message','Техническая диагностика. Исследовательские профили; генерация НПМ, ВПМ и IFC пока недоступна.');}
+ try{const config=await api('/api/config');if(config.sourceLink!=='https://github.com/BlackWizlock/axis-model-generator')throw new ApiError('invalid_config');state.limits=config.limits||state.limits;setInputFormats(config.inputFormats);message('service-message','Техническая диагностика. Исследовательские профили; генерация НПМ, ВПМ и IFC пока недоступна.');}
  catch(error){message('service-message',safeError(error),true);}
- try{await guestSession();setUser(await api('/api/auth/me'));message('session-message','Готово к загрузке.');}catch(error){setUser(null);message('session-message',safeError(error),true);}
+ try{await guestSession();setUser(await api('/api/auth/me'));message('session-message',allowedExtensions(state.inputFormats)?'Готово к загрузке.':'Приватная сессия готова. Загрузка недоступна до получения форматов сервера.');}catch(error){setUser(null);message('session-message',safeError(error),true);}
 }
 void start();
 

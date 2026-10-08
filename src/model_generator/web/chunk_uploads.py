@@ -39,7 +39,7 @@ class ChunkUploads:
                 'acknowledgedBytes':row['received_bytes'],'totalBytes':row['declared_bytes'],
                 'chunkBytes':CHUNK_BYTES,'nextPart':row['received_bytes']//CHUNK_BYTES+1 if row['received_bytes']<row['declared_bytes'] else None,
                 'expiresAt':row['expires_at'],'kind':row['input_kind'],'sha256':row['sha256'],
-                'reason':row['failure_code'],
+                'reason':row['failure_code'],'descriptorVersion':row['descriptor_version'],
                 'diagnosticId':correlation('upload',row['id'])}
 
     def status(self,owner,id):

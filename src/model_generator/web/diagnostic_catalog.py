@@ -138,9 +138,9 @@ ERROR_GROUPS = {
  'expired': 'upload_expired job_expired',
  'quota': 'guest_limited job_limited rate_limited registration_limited upload_limited storage_full',
  'size': 'body_too_large upload_too_large',
- 'input': 'invalid_analytics_input invalid_cursor invalid_job invalid_json unsupported_media_type range_unavailable request_rejected',
+ 'input': 'invalid_analytics_input invalid_cursor invalid_job invalid_json unsupported_media_type range_unavailable request_rejected engine_unavailable',
  'missing': 'not_found',
- 'service': 'analytics_unavailable database_not_ready database_unavailable internal_error service_busy storage_not_ready storage_unavailable validation_resource validation_failed worker_interrupted input_changed preview_resource preview_runtime_unavailable progress_invalid journal_unavailable',
+ 'service': 'analytics_unavailable database_not_ready database_unavailable internal_error service_busy storage_not_ready storage_unavailable validation_resource validation_failed worker_interrupted input_changed input_descriptor_mismatch preview_resource preview_runtime_unavailable progress_invalid journal_unavailable',
  'preview': 'preview_unsupported preview_budget preview_roundtrip_error generation_not_implemented preview_pending zip_fbx_preview_not_verified',
 }
 ERROR_CODES = frozenset(code for group in ERROR_GROUPS.values() for code in group.split())

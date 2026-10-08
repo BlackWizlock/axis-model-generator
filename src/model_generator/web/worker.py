@@ -30,6 +30,7 @@ from .preview import PreviewError,PreviewLimits,decode_preview_json
 from .blender_runner import _root,_input,THUMBNAIL_MAX_BYTES
 from .preview_runner import run_preview,preflight_preview,installed_preview_fingerprint
 from ..png_inspection import inspect_png
+from ..input_descriptor import input_filename, make_descriptor
 
 WORKER_LOCK = 0x4d47574f524b
 
@@ -66,7 +67,8 @@ def terminate_group(process):
             time.sleep(.02)
 
 
-def run_child(settings, scratch, kind, cancelled, *, probe=None, progress=None, source_hash=None, attempt=None):
+def run_child(settings, scratch, kind, cancelled, *, descriptor_version: int = 0, probe=None, progress=None, source_hash=None, attempt=None):
+    input_filename(descriptor_version)
     preview_limits=PreviewLimits(settings.preview_max_instances,settings.preview_max_vertices,
                                  settings.preview_max_triangles,settings.preview_max_bytes)
     ticks, boot = identity(os.getpid())
@@ -74,6 +76,7 @@ def run_child(settings, scratch, kind, cancelled, *, probe=None, progress=None, 
            'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONUNBUFFERED': '1', 'LANG': 'C.UTF-8',
            'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'}
     command = [sys.executable, '-m', 'model_generator.web.validation_child', '--kind', kind, '--scratch', str(scratch)]
+    command += ['--descriptor-version', str(descriptor_version)]
     command += ['--preview-max-instances',str(preview_limits.instances),
                 '--preview-max-vertices',str(preview_limits.vertices),
                 '--preview-max-triangles',str(preview_limits.triangles),
@@ -225,6 +228,39 @@ def _verified_download(objects, descriptor, path, max_bytes):
         raise ValueError('Input hash changed')
 
 
+class InputDescriptorMismatch(ValueError):
+    code = 'input_descriptor_mismatch'
+
+
+def _checked_input(job, upload):
+    """Bind persisted transport metadata to this job before any parser runs."""
+    try:
+        version = upload['descriptor_version']
+        input_filename(version)
+        if (upload['owner_id'] != job['owner_id']
+                or upload['input_kind'] != job['input_kind']
+                or upload['sha256'] != job['input_sha256']
+                or upload['object_sha256'] != job['input_sha256']
+                or upload['declared_bytes'] != upload['object_bytes']
+                or not upload['object_key'].startswith(f"owners/{job['owner_id']}/uploads/{job['upload_id']}/")):
+            raise ValueError
+        if version == 1:
+            expected = make_descriptor(upload['input_kind'], upload['display_name'],
+                                       upload['declared_bytes'], upload['sha256'])
+            actual = upload['input_descriptor']
+            if (not isinstance(actual, dict) or actual != expected
+                    or type(actual.get('version')) is not int
+                    or type(actual.get('bytes')) is not int):
+                raise ValueError
+        elif upload['input_descriptor'] is not None:
+            raise ValueError
+        descriptor = ObjectDescriptor(upload['object_key'], upload['object_bytes'],
+                                      upload['object_sha256'], 'application/octet-stream' if version else 'application/zip')
+        return version, descriptor
+    except (KeyError, TypeError, ValueError):
+        raise InputDescriptorMismatch('Input descriptor changed') from None
+
+
 def _artifact_intent(db, job, size, sha, now, kind='report'):
     repo = JobRepository(db, db.settings)
     suffix={'report':'report.json','preview':'preview-input.json','thumbnail':'thumbnail.png'}[kind]
@@ -348,11 +384,12 @@ def run_once(db, settings, epoch):
             repo.finish(job['id'], epoch, 'failed', 'input_changed', int(time.time()))
             return True
         with db.connect() as con:
-            upload = con.execute('SELECT object_key,object_bytes,object_sha256 FROM uploads WHERE id=%s', (job['upload_id'],)).fetchone()
-        descriptor = ObjectDescriptor(upload['object_key'], upload['object_bytes'], upload['object_sha256'], 'application/zip')
-        if descriptor.sha256 != job['input_sha256']:
-            raise ValueError('Input hash changed')
-        _verified_download(objects, descriptor, scratch / 'input.zip', settings.upload_max_bytes)
+            upload = con.execute('SELECT owner_id,object_key,object_bytes,object_sha256,descriptor_version,input_descriptor,input_kind,sha256,declared_bytes,display_name FROM uploads WHERE id=%s', (job['upload_id'],)).fetchone()
+        descriptor_version, descriptor = _checked_input(job, upload)
+        _verified_download(objects, descriptor, scratch / input_filename(descriptor_version), settings.upload_max_bytes)
+        if _cancelled(db, job, settings):
+            repo.finish(job['id'], epoch, 'cancelled', None, int(time.time()))
+            return True
         if job['checkpoint']:
             checkpoint=_restore_checkpoint(db,objects,job,settings,scratch,expected)
             _preview_stage(db,objects,repo,job,settings,scratch,checkpoint)
@@ -364,7 +401,7 @@ def run_once(db, settings, epoch):
         from .progress import persist_progress
         callback=lambda snapshot:persist_progress(db,job,snapshot,int(time.time()))
         result, code = run_child(settings, scratch, job['input_kind'], lambda: _cancelled(db, job, settings),
-                                 progress=callback,source_hash=job['input_sha256'],attempt=epoch)
+                                 descriptor_version=descriptor_version,progress=callback,source_hash=job['input_sha256'],attempt=epoch)
         if code:
             from .journal import emit,correlation
             if code!='cancelled': emit(getattr(db,'journal',None),'validation',code,correlation('job',job['id'],epoch),job_id=job['id'],attempt=epoch)
@@ -393,7 +430,7 @@ def run_once(db, settings, epoch):
         emit(getattr(db,'journal',None),'worker',getattr(error,'code','input_changed'),correlation('job',job['id'],epoch),error,job_id=job['id'],attempt=epoch)
         current = _job(db, job['id'])
         if current and current['state'] == 'running' and current['worker_epoch'] == epoch:
-            repo.finish(job['id'], epoch, 'failed', 'storage_unavailable' if isinstance(error, ApiError) else 'input_changed', int(time.time()))
+            repo.finish(job['id'], epoch, 'failed', 'storage_unavailable' if isinstance(error, ApiError) else getattr(error, 'code', 'input_changed'), int(time.time()))
     except (RuntimeError,psycopg.Error,OSError,TimeoutError) as error:
         from .journal import emit,correlation
         emit(getattr(db,'journal',None),'worker','worker_interrupted',correlation('job',job['id'],epoch),error,job_id=job['id'],attempt=epoch)

@@ -940,6 +940,38 @@
     {
       "source": "tests/web/test_analytics_consent.py",
       "export": "tests/web/test_analytics_consent.py"
+    },
+    {
+      "source": "web/src/input-formats.js",
+      "export": "web/src/input-formats.js"
+    },
+    {
+      "source": "web/tests/input-formats.vitest.mjs",
+      "export": "web/tests/input-formats.vitest.mjs"
+    },
+    {
+      "source": "src/model_generator/input_formats.py",
+      "export": "src/model_generator/input_formats.py"
+    },
+    {
+      "source": "src/model_generator/input_descriptor.py",
+      "export": "src/model_generator/input_descriptor.py"
+    },
+    {
+      "source": "src/model_generator/web/migrations/010-input-descriptor.sql",
+      "export": "src/model_generator/web/migrations/010-input-descriptor.sql"
+    },
+    {
+      "source": "tests/web/test_input_formats.py",
+      "export": "tests/web/test_input_formats.py"
+    },
+    {
+      "source": "tests/web/test_input_descriptor.py",
+      "export": "tests/web/test_input_descriptor.py"
+    },
+    {
+      "source": "tests/web/test_validation_child.py",
+      "export": "tests/web/test_validation_child.py"
     }
   ]
 }

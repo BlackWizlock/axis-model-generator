@@ -6,6 +6,16 @@ except ModuleNotFoundError:
     ObjectStore=ObjectIntent=None
 
 class S3ContractTests(unittest.TestCase):
+    def test_only_fixed_input_transport_names_are_allowed(self):
+        from types import SimpleNamespace
+        store=object.__new__(ObjectStore); store.settings=SimpleNamespace(bucket='model-generator-test')
+        prefix='owners/'+('1'*32)+'/uploads/'+('2'*32)+'/'+('3'*32)+'/'
+        for basename in ('input.zip','input.bin'):
+            self.assertEqual(store._key(prefix+basename)['Key'],prefix+basename)
+        for basename in ('model.rvt','../input.bin','input.bin/other','input.BIN'):
+            with self.subTest(basename=basename),self.assertRaises(ValueError):
+                store._key(prefix+basename)
+
     def test_pinned_explicit_multipart(self):
         self.assertIsNotNone(ObjectStore,'Private ObjectStore missing')
         import boto3
@@ -47,6 +57,22 @@ class RealS3Tests(unittest.TestCase):
         self.store.abort_multipart(self.intent)
         descriptor=self.store.head(self.intent)
         if descriptor: self.store.delete(descriptor)
+    def test_version_one_full_and_chunk_upload_content_type(self):
+        import time
+        self.path.write_bytes(b'x')
+        self.intent=replace(self.intent,key=self.intent.key.removesuffix('input.zip')+'input.bin',reserved_bytes=1,deadline=time.monotonic()+30)
+        sha=hashlib.sha256(b'x').hexdigest()
+        descriptor=self.store.put_file(self.intent,self.path,lambda id:None)
+        self.assertEqual(descriptor.content_type,'application/octet-stream')
+        self.store.delete(descriptor)
+        mp=self.store.ensure_multipart(self.intent,sha)
+        self.intent=replace(self.intent,multipart_id=mp)
+        etag=self.store.upload_chunk(self.intent,1,self.path)
+        self.store.complete_chunks(self.intent,[{'PartNumber':1,'ETag':etag}])
+        verified=self.store.verify_ranges(self.intent,1,sha,lambda:None)
+        self.assertEqual(verified.content_type,'application/octet-stream')
+        self.assertEqual(self.store.head(self.intent).content_type,'application/octet-stream')
+
     def test_explicit_multipart_head_hash_private_anonymous_refusal(self):
         ids=[]
         descriptor=self.store.put_file(self.intent,self.path,ids.append)
