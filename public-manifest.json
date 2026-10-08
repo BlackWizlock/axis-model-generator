@@ -286,9 +286,9 @@
       "sha256": "74e22eb9ee06b9956e5b0567b552a94b2d817c0f79703b8a6f70a24942dd48ca"
     },
     {
-      "bytes": 29703,
+      "bytes": 29877,
       "path": "scripts/release-web.py",
-      "sha256": "c498f2e8c9618f94f084aef9b0678a5d2ab8b44bc924ea654ca08802d776514f"
+      "sha256": "503451082659ecccbf4e6697702b6984e8dc3434d9bb6f69d245ceab6af878b1"
     },
     {
       "bytes": 69,
@@ -646,9 +646,9 @@
       "sha256": "5f17be4dc3dffdcf5715c2237d491ffdeb7f297fd02a413a1b804e7cc69d9255"
     },
     {
-      "bytes": 16075,
+      "bytes": 16766,
       "path": "tests/release/test_release_gate.py",
-      "sha256": "ababd5f1f204f30432f95c11726900e23b75aafc1f94502a24243951e99cd354"
+      "sha256": "a75e92e45aa3ec958e9aea7b08b8dc49deed1e946b6e94263676015320f93043"
     },
     {
       "bytes": 4618,
@@ -1178,5 +1178,5 @@
   ],
   "provenance": "sanitized_source_snapshot",
   "schema_version": 1,
-  "source_revision": "a4884ec20254d68dc230ac3f341041c32cc14260"
+  "source_revision": "d736f1a5591f6696a8f108ff2400145a16c83bc0"
 }

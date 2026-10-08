@@ -38,9 +38,11 @@ def evidence_gate(directory, accepted_source):
     if 'Final exact native UI, ingress and production active restore acceptance passed' not in final:
         raise ValueError('Final native acceptance evidence missing')
     diagnostic = (directory / 'diagnostics.log').read_text()
-    for marker in ('Ran 246 tests', 'Ran 187 tests', 'diagnostics Docker acceptance passed.'):
-        if marker not in diagnostic:
-            raise ValueError('Full native diagnostic evidence missing')
+    counts = [int(value) for value in re.findall(r'^Ran ([0-9]+) tests in .+$', diagnostic, re.MULTILINE)]
+    if len(counts) != 2 or counts[0] < 246 or counts[1] < 187:
+        raise ValueError('Full native diagnostic suite evidence missing')
+    if 'diagnostics Docker acceptance passed.' not in diagnostic:
+        raise ValueError('Full native diagnostic evidence missing')
     if re.search(r'(^FAILED|FAILED \(|skipped=|^ERROR:)', diagnostic, re.MULTILINE):
         raise ValueError('Diagnostic acceptance contains failure or skip')
     if (directory/'cold-native.exit').read_text().strip()!='0':
