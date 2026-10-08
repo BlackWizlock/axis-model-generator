@@ -118,7 +118,7 @@ class SecurityMiddleware:
                 owned={name.lower().encode() for name in SECURITY_HEADERS}
                 headers=[(key,value) for key,value in message.get('headers',[]) if key.lower() not in owned]
                 response_headers=dict(SECURITY_HEADERS)
-                if status==200 and scope.get('path') in ('/','/privacy','/support') and any(key.lower()==b'content-type' and value.split(b';',1)[0]==b'text/html' for key,value in headers):
+                if status==200 and scope.get('path') in ('/','/privacy','/support','/analytics-consent') and any(key.lower()==b'content-type' and value.split(b';',1)[0]==b'text/html' for key,value in headers):
                     response_headers['Content-Security-Policy']=PUBLIC_HTML_CSP
                 headers.extend((key.lower().encode(),value.encode()) for key,value in response_headers.items())
                 headers.append((b'x-request-id',request_id.encode()))

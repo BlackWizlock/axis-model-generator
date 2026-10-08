@@ -16,8 +16,8 @@ function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('thumbnai
 function setUser(user){
  state.user=user;state.poller?.stop();state.poller=null;
  byId('upload-submit').disabled=!user;
- if(user){state.limits=user.limits||state.limits;byId('upload-limit').textContent=`До ${Math.floor(Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)/1024/1024)} MiB · хранение 24 часа`;state.poller=startPolling(refreshJobs);checkChosenFile();}
- else{state.selectionEpoch++;state.upload?.abort();state.jobs=[];state.selected=null;byId('jobs-list').replaceChildren(element('p','Здесь появятся модели из этой сессии.','empty-jobs'));resetPreview();byId('viewer').textContent='Откройте демонстрацию или результат своей модели.';byId('checks-list').replaceChildren();byId('checks-summary').textContent='Приватный сеанс не получен. Инструкция показана в сообщении сеанса.';setCsrfToken(null);}
+ if(user){state.limits=user.limits||state.limits;byId('upload-limit').textContent=`До ${Math.floor(Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)/1024/1024)} MiB · доступ к заданию и результатам до 24 часов`;state.poller=startPolling(refreshJobs);checkChosenFile();}
+ else{state.selectionEpoch++;state.upload?.abort();state.jobs=[];state.selected=null;byId('jobs-list').replaceChildren(element('p','Здесь появятся модели из этой сессии.','empty-jobs'));resetPreview();byId('viewer').textContent='Откройте демонстрацию или результат своей модели.';byId('checks-list').replaceChildren();byId('checks-summary').textContent='Не удалось открыть приватную сессию. Следуйте инструкции под формой загрузки.';setCsrfToken(null);}
 }
 function checkChosenFile(){
  const file=byId('input-file').files[0];
@@ -88,7 +88,7 @@ async function refreshChecks(job){
  showAxes({coverage:checks.coverage});if(state.checkFingerprint===fingerprint)return;state.checkFingerprint=fingerprint;renderChecks(byId('checks-list'),checks,()=>epoch===state.selectionEpoch&&state.selected===job.id&&state.checkFingerprint===fingerprint);
 }
 async function openJob(id,{scroll=true}={}){
- const epoch=++state.selectionEpoch;const user=state.user;if(!user)return;state.selected=id;state.demo=false;byId('checks-list').replaceChildren();byId('checks-summary').textContent='Получаем проверки этого отдельного запуска…';state.checkSummary=null;state.checkFingerprint=null;resetPreview();byId('preview-provenance').textContent='ПРИВАТНЫЙ ПАКЕТ';byId('viewer').textContent='Получаем собственный результат…';message('preview-message','');
+ const epoch=++state.selectionEpoch;const user=state.user;if(!user)return;state.selected=id;state.demo=false;byId('checks-list').replaceChildren();byId('checks-summary').textContent='Загружаем результаты проверок…';state.checkSummary=null;state.checkFingerprint=null;resetPreview();byId('preview-provenance').textContent='ПРИВАТНЫЙ ПАКЕТ';byId('viewer').textContent='Открываем результат вашего пакета…';message('preview-message','');
  if(scroll)byId('preview-section').scrollIntoView({block:'start'});
  try{
   const job=await getJob(id);if(epoch!==state.selectionEpoch||user!==state.user)return;
@@ -106,7 +106,7 @@ async function openJob(id,{scroll=true}={}){
 }
 byId('demo-button').addEventListener('click',async()=>{
  const button=byId('demo-button');button.disabled=true;const epoch=++state.selectionEpoch;state.selected=null;state.demo=true;resetPreview();byId('preview-provenance').textContent='СИНТЕТИЧЕСКАЯ ДЕМОНСТРАЦИЯ';byId('viewer').textContent='Загружаем демонстрацию…';byId('preview-section').scrollIntoView({block:'start'});
- try{const preview=await api('/api/demo/preview',{maxBytes:16*1024*1024});if(epoch!==state.selectionEpoch)return;if(preview.provenance!=='synthetic')throw new ApiError('invalid_preview');state.viewer=mountPreview(byId('viewer'),preview);trackGoal('demo_opened');byId('reset-view').disabled=false;message('preview-message','Синтетическая демонстрация. Это учебная геометрия, она не подтверждает чтение реальной модели Revit или региональное соответствие.');}
+ try{const preview=await api('/api/demo/preview',{maxBytes:16*1024*1024});if(epoch!==state.selectionEpoch)return;if(preview.provenance!=='synthetic')throw new ApiError('invalid_preview');state.viewer=mountPreview(byId('viewer'),preview);trackGoal('demo_opened');byId('reset-view').disabled=false;message('preview-message','Учебная модель для демонстрации просмотра. Она не подтверждает чтение модели Revit или соответствие региональным требованиям.');}
  catch(error){if(epoch===state.selectionEpoch){byId('viewer').textContent='Демонстрация пока недоступна.';message('preview-message',safeError(error),true);}}finally{button.disabled=false;}
 });
 byId('reset-view').addEventListener('click',()=>state.viewer?.reset());

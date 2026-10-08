@@ -658,6 +658,10 @@
       "export": "web/privacy.html"
     },
     {
+      "source": "web/analytics-consent.html",
+      "export": "web/analytics-consent.html"
+    },
+    {
       "source": "web/src/api.js",
       "export": "web/src/api.js"
     },
@@ -924,6 +928,18 @@
     {
       "source": "scripts/build-sitemap.mjs",
       "export": "scripts/build-sitemap.mjs"
+    },
+    {
+      "source": "src/model_generator/web/analytics_routes.py",
+      "export": "src/model_generator/web/analytics_routes.py"
+    },
+    {
+      "source": "src/model_generator/web/migrations/009-analytics-consents.sql",
+      "export": "src/model_generator/web/migrations/009-analytics-consents.sql"
+    },
+    {
+      "source": "tests/web/test_analytics_consent.py",
+      "export": "tests/web/test_analytics_consent.py"
     }
   ]
 }

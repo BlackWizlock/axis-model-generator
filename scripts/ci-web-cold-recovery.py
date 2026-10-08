@@ -131,6 +131,8 @@ class Proof:
     def oneoff(self,code,data=None):
         return self.run(self.compose+['run','--rm','-T','--entrypoint','python','api','-c',code],data=None if data is None else json.dumps(data)).stdout
     def api(self,path,data):
+        if data.get('legacyWithoutConsent') is True and self.phase not in ('legacy-bootstrap','legacy-transition'):
+            raise ValueError('Legacy consent exception outside actual legacy proof')
         return self.run(self.compose+['exec','-T','api','python','-c',path.read_text()],data=json.dumps(data)).stdout
     def identity(self):return json.loads(self.oneoff(IDENTITY))
     def configure(self,previous=None):
@@ -289,13 +291,13 @@ networks:
         assert old_file==old+[0], 'Actual legacy lock must be the old empty file'
         fixture=self.run(self.compose+['exec','-T','api','python','-c',(ROOT/'tests/fixtures/package_builders.py').read_text()+"\nimport base64;print(base64.b64encode(make_package()).decode())"]).stdout.strip()
         http=ROOT/'tests/web/production_http_proof.py'
-        ready=json.loads(self.api(http,{'mode':'create','fixture':fixture}));self.private.extend((ready['ownerCookie'],ready['neighbourCookie']))
+        ready=json.loads(self.api(http,{'mode':'create','fixture':fixture,'legacyWithoutConsent':True}));self.private.extend((ready['ownerCookie'],ready['neighbourCookie']))
         os.environ.update(**{'MG_'+role.upper()+'_IMAGE':self.images[role]['id'] for role in ('api','worker')})
         self.phase='legacy-transition'
         with cold.operator_lock(self.runtime):
             release.legacy_operator.transition(self.compose,self.runtime,self.project,self.images,previous,tuple(old)+(None,),cold,release.keeper_gate,lambda:self.oneoff('from model_generator.web.migrate import main;main()'),lambda:self.run(self.compose+['up','-d','--wait','postgres','s3-proxy']))
         self.start();new=self.identity();assert new[2] is not None
-        self.api(http,{'mode':'verify','proof':ready});self.oneoff(QUOTAS);self.ready()
+        self.api(http,{'mode':'verify','proof':ready,'legacyWithoutConsent':True});self.oneoff(QUOTAS);self.ready()
         print(json.dumps({'phase':'legacy-transition','oldLock':old+[None],'newLock':new}),flush=True)
         print('Final native isolated legacy generation transition acceptance passed',flush=True)
     def run_proof(self):
@@ -385,6 +387,7 @@ networks:
             time.sleep(.5)
         assert row==['cancelled',False],row
         self.api(own_http,{'mode':'cancel','job':cancelled});self.oneoff(QUOTAS);self.ready()
+        self.api(http,{'mode':'verify','proof':ready,'withdrawConsent':True})
         print('Final native isolated cold recovery acceptance passed',flush=True)
     def close(self,failed):
         if failed and self.compose:
