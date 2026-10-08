@@ -42,6 +42,20 @@ def altered(package, inspection, *, scene=None, member=None):
 
 
 class PreviewTests(unittest.TestCase):
+    def test_neutral_package_preserves_reader_report_and_preview(self):
+        from model_generator.web.validation_child import validate_input, ChildSettings
+        wire=make_package()
+        reports=[]; previews=[]
+        for filename in ('input.zip','input.bin'):
+            with tempfile.TemporaryDirectory() as directory:
+                scratch=Path(directory); path=scratch/filename; path.write_bytes(wire)
+                result=validate_input(path,'portable-package',ChildSettings(scratch=scratch))
+                reports.append(result.report)
+                self.assertIsNotNone(result.preview_input_path)
+                previews.append(result.preview_input_path.read_bytes())
+                self.assertEqual(result.report['input_sha256'],hashlib.sha256(wire).hexdigest())
+        self.assertEqual(reports[0],reports[1]); self.assertEqual(previews[0],previews[1])
+
     def test_limits_are_exact_immutable_positive_and_cannot_raise_hard_caps(self):
         limits = preview.PreviewLimits()
         self.assertEqual((limits.instances, limits.vertices, limits.triangles, limits.wire_bytes),

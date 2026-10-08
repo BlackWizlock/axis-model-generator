@@ -272,7 +272,7 @@ class JobRepository:
             con.execute("UPDATE jobs SET checkpoint=%s,preview_failure_code=%s,stage='report',updated_at=%s WHERE id=%s",(Jsonb(checkpoint),reason,now,job_id))
 
     def finish(self, job_id, epoch, state, failure_code, now):
-        if state not in {'completed', 'failed', 'cancelled'} or failure_code not in {None, 'validation_resource', 'validation_failed', 'worker_interrupted', 'input_changed', 'job_expired', 'storage_unavailable', 'progress_invalid'}:
+        if state not in {'completed', 'failed', 'cancelled'} or failure_code not in {None, 'validation_resource', 'validation_failed', 'worker_interrupted', 'input_changed', 'input_descriptor_mismatch', 'job_expired', 'storage_unavailable', 'progress_invalid'}:
             raise ValueError('Invalid terminal state')
         with self.db.transaction() as con:
             row = con.execute('SELECT owner_id FROM jobs WHERE id=%s', (job_id,)).fetchone()

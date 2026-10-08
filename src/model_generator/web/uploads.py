@@ -1,6 +1,7 @@
 """Single-use raw upload receiver with bounded backpressure and closed-IO cleanup."""
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import hashlib
 import os
 import stat
@@ -140,8 +141,13 @@ async def reserve(request: Request):
     user=await require_mutation(request); store=require_storage(request)
     settings=store.settings
     value=await bounded_json(request,settings.json_max_bytes,settings.json_idle_seconds,settings.json_wall_seconds)
-    if set(value)!={'kind','displayName','bytes','sha256'}: raise ApiError('invalid_upload','Upload metadata is invalid.',422)
-    result=await store.db.run(store.reserve_upload,user.id,value['kind'],value['displayName'],value['bytes'],value['sha256'],int(request.app.state.clock()))
+    if set(value) not in ({'kind','displayName','bytes','sha256'},
+                          {'kind','displayName','bytes','sha256','descriptorVersion'}):
+        raise ApiError('invalid_upload','Upload metadata is invalid.',422)
+    version=value.get('descriptorVersion',0)
+    if type(version) is not int or version not in (0,1):
+        raise ApiError('invalid_upload','Upload metadata is invalid.',422)
+    result=await store.db.run(partial(store.reserve_upload,descriptor_version=version),user.id,value['kind'],value['displayName'],value['bytes'],value['sha256'],int(request.app.state.clock()))
     return JSONResponse(result,status_code=201)
 
 @router.put('/{upload_id}/content')

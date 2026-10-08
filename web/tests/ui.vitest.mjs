@@ -97,3 +97,20 @@ test('cancelled and failed diagnostics are final user-facing states',async()=>{
  const {completionText}=await import('../src/checks.js');
  for(const[state,text]of [['cancelled','Обработка отменена'],['interrupted','Обработка прервана'],['failed','Обработку не удалось завершить'],['deleted','Задание удалено'],['deleting','Задание удаляется']]) assert.equal(completionText({state},{checks:[]}),text);
 });
+
+import {CHUNK_BYTES, UPLOAD_CAP} from '../src/upload.js';
+test('server matrix blocks RVT and malformed config before hash or any POST/job',async()=>{
+ const previousWorker=globalThis.Worker,previousFetch=globalThis.fetch;let hashes=0,requests=0;
+ globalThis.Worker=class{constructor(){hashes++;}};globalThis.fetch=async()=>{requests++;throw new Error('unexpected request');};
+ const rows=[{id:'rvt',extensions:['.rvt'],upload:false,diagnostics:false,preview:false,generation:false,reason:'engine_unavailable'}];
+ try{
+  await assert.rejects(uploadFile({name:'MODEL.RVT',size:10},'rvt','csrf',()=>{},new AbortController().signal,{inputFormats:rows}),error=>error.message==='Обработка RVT пока недоступна: серверный движок не подключён');
+  await assert.rejects(uploadFile({name:'MODEL.ZIP',size:10},'zip-fbx','csrf',()=>{},new AbortController().signal,{inputFormats:null}));
+  await assert.rejects(uploadFile({name:'MODEL.FBX',size:10},'fbx','csrf',()=>{},new AbortController().signal));
+  assert.equal(hashes,0);assert.equal(requests,0);assert.equal(UPLOAD_CAP,256*1024*1024);assert.equal(CHUNK_BYTES,8*1024*1024);
+ }finally{globalThis.Worker=previousWorker;globalThis.fetch=previousFetch;}
+});
+
+for(const inputFormats of [{},[{id:'zip-fbx',extensions:['.zip'],upload:true}]]) test(`malformed public upload matrix rejects before hashing ${JSON.stringify(inputFormats)}`,async()=>{
+ await assert.rejects(uploadFile({name:'MODEL.ZIP',size:10},'zip-fbx','csrf',()=>{},new AbortController().signal,{inputFormats}));
+});

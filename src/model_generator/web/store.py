@@ -11,11 +11,14 @@ import threading
 import unicodedata
 from dataclasses import replace
 from uuid import uuid4
+from psycopg.types.json import Jsonb
+from ..input_descriptor import input_filename, make_descriptor
+from ..input_formats import require_diagnostics
 from .security import ApiError
 from .s3_store import ObjectStore,ObjectIntent
 
 ID=re.compile(r'[a-f0-9]{32}\Z')
-SUFFIXES={'input.zip','input.part','report.json','preview.json','preview-input.json','thumbnail.png','measurements.json'}
+SUFFIXES={'input.zip','input.bin','input.part','report.json','preview.json','preview-input.json','thumbnail.png','measurements.json'}
 
 def atomic_write(path: Path,chunks,max_bytes):
     if path.is_symlink(): raise OSError('Unsafe scratch')
@@ -72,18 +75,23 @@ class Storage:
         row=con.execute('SELECT * FROM uploads WHERE id=%s AND owner_id=%s'+(' FOR UPDATE' if lock else ''),(id,owner)).fetchone()
         if not row: raise ApiError('not_found','Resource is unavailable.',404)
         return row
-    def reserve_upload(self,owner_id,kind,display_name,size,sha256,now):
+    def reserve_upload(self,owner_id,kind,display_name,size,sha256,now,*,descriptor_version: int = 0):
         try:
-            if kind not in {'zip-fbx','portable-package'} or not isinstance(display_name,str): raise ValueError
+            basename=input_filename(descriptor_version)
+            require_diagnostics(kind)
+            if not isinstance(display_name,str): raise ValueError
             name=unicodedata.normalize('NFC',display_name)
             if not 1<=len(name.encode('utf-8'))<=160 or any(unicodedata.category(c).startswith('C') for c in name): raise ValueError
             if isinstance(size,bool) or not isinstance(size,int) or size<1 or not isinstance(sha256,str) or not re.fullmatch('[a-f0-9]{64}',sha256): raise ValueError
-        except (ValueError,TypeError,UnicodeError): raise ApiError('invalid_upload','Upload metadata is invalid.',422) from None
+        except (ValueError,TypeError,UnicodeError) as error:
+            if str(error)=='engine_unavailable': raise ApiError('engine_unavailable','Input diagnostics engine is unavailable.',422) from None
+            raise ApiError('invalid_upload','Upload metadata is invalid.',422) from None
         if size>self.settings.upload_max_bytes: raise ApiError('upload_too_large','Upload exceeds the size limit.',413)
+        descriptor=make_descriptor(kind,name,size,sha256) if descriptor_version==1 else None
         self.settings.data_root.mkdir(mode=0o700,parents=True,exist_ok=True)
         free=shutil.disk_usage(self.settings.data_root).free  # CPU/OS outside transaction.
         id=uuid4().hex; epoch=uuid4().hex; expires=now+self.settings.unused_upload_seconds
-        key=f'owners/{owner_id}/uploads/{id}/{epoch}/input.zip'
+        key=f'owners/{owner_id}/uploads/{id}/{epoch}/{basename}'
         with self.db.transaction() as con:
             global_row,owner=self._locks(con,owner_id)
             daily=con.execute("SELECT count(*) AS global_count,count(*) FILTER(WHERE owner_id=%s) AS owner_count FROM usage_events WHERE action='upload' AND timestamp>=%s",(owner_id,now//86400*86400)).fetchone()
@@ -97,11 +105,11 @@ class Storage:
                 raise ApiError('storage_full','Private storage capacity is unavailable.',507)
             from .auth import consume_guest_acceptance
             consume_guest_acceptance(con,self.settings,owner_id,'upload',now)
-            con.execute('INSERT INTO uploads(id,owner_id,input_kind,display_name,declared_bytes,sha256,state,reservation_bytes,writer_epoch,created_at,expires_at) VALUES(%s,%s,%s,%s,%s,%s,\'receiving\',%s,%s,%s,%s)',(id,owner_id,kind,name,size,sha256,size,epoch,now,expires))
+            con.execute('INSERT INTO uploads(id,owner_id,input_kind,display_name,declared_bytes,sha256,state,reservation_bytes,writer_epoch,created_at,expires_at,descriptor_version,input_descriptor) VALUES(%s,%s,%s,%s,%s,%s,\'receiving\',%s,%s,%s,%s,%s,%s)',(id,owner_id,kind,name,size,sha256,size,epoch,now,expires,descriptor_version,Jsonb(descriptor) if descriptor is not None else None))
             con.execute("INSERT INTO object_intents VALUES(%s,%s,%s,%s,'reserved',NULL,%s)",(id,owner_id,epoch,key,size))
             con.execute('UPDATE quota_scopes SET storage_bytes=storage_bytes+%s,active_uploads=active_uploads+1 WHERE scope IN (\'global\',%s)',(size,owner_id))
             con.execute("INSERT INTO usage_events(action,owner_id,timestamp,bytes) VALUES('upload',%s,%s,%s)",(owner_id,now,size))
-        return {'id':id,'state':'receiving','expiresAt':expires}
+        return {'id':id,'state':'receiving','expiresAt':expires,'descriptorVersion':descriptor_version}
     def claim_content(self,owner_id,upload_id,writer_epoch=None):
         writer_epoch=writer_epoch or uuid4().hex
         if not ID.fullmatch(writer_epoch): raise ValueError("Invalid writer epoch")
@@ -112,7 +120,7 @@ class Storage:
             con.execute("UPDATE uploads SET protocol='single-put',content_claimed=TRUE,api_epoch=%s,writer_epoch=%s,writer_started_at=%s WHERE id=%s",(self.api_epoch,writer_epoch,int(time.time()),upload_id))
             # No object producer exists before this single-use claim. Bind the durable
             # intent and immutable key to this request's proof in the same COMMIT.
-            key=f'owners/{owner_id}/uploads/{upload_id}/{writer_epoch}/input.zip'
+            key=f"owners/{owner_id}/uploads/{upload_id}/{writer_epoch}/{input_filename(row['descriptor_version'])}"
             con.execute("UPDATE object_intents SET state='writing',attempt_epoch=%s,key=%s WHERE object_id=%s",(writer_epoch,key,upload_id))
             row['api_epoch']=self.api_epoch; row['writer_epoch']=writer_epoch
             return row
@@ -158,7 +166,7 @@ class Storage:
             con.execute("UPDATE uploads SET state='ready',received_bytes=%s,object_key=%s,object_bytes=%s,object_sha256=%s,writer_closed=TRUE,active_reserved=FALSE WHERE id=%s",(received_bytes,descriptor.key,descriptor.bytes,descriptor.sha256,upload_id))
             con.execute("UPDATE object_intents SET state='complete',multipart_id=NULL WHERE object_id=%s",(upload_id,))
             con.execute('UPDATE quota_scopes SET active_uploads=active_uploads-1 WHERE scope IN (\'global\',%s)',(owner_id,))
-        return {'id':upload_id,'state':'ready','bytes':received_bytes,'sha256':sha256}
+        return {'id':upload_id,'state':'ready','bytes':received_bytes,'sha256':sha256,'descriptorVersion':row['descriptor_version']}
     def request_abort(self,owner_id,upload_id,now):
         with self.db.transaction() as con:
             self._locks(con,owner_id); row=self._row(con,owner_id,upload_id,True)

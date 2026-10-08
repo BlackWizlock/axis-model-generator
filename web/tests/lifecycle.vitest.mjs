@@ -2,6 +2,8 @@ import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {allowedExtensions,acceptsFile,unavailableFormatText,rejectedFileText} from '../src/input-formats.js';
+const formats=[{id:'portable-package',extensions:['.zip'],upload:true,diagnostics:true,preview:true,generation:false,reason:null},{id:'zip-fbx',extensions:['.zip'],upload:true,diagnostics:true,preview:false,generation:false,reason:null},{id:'rvt',extensions:['.rvt'],upload:false,diagnostics:false,preview:false,generation:false,reason:'engine_unavailable'}];
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 import {renderChecks} from '../src/checks.js';
 import {trackGoal,watchDiagnostic,observeDiagnostic} from '../src/analytics.js';
@@ -17,8 +19,8 @@ class Element {
 async function appHarness(overrides={}) {
  const nodes={},events={},pollers=[];let disposed=0;
  const get=id=>nodes[id]||=new Element();
- const context={console,Date,JSON,Set,Math,AbortController,trackGoal,watchDiagnostic,observeDiagnostic,document:{hidden:false,getElementById:get,createElement:tag=>new Element(tag)},window:{addEventListener:(name,fn)=>events[name]=fn},setInterval:()=>1,clearInterval(){},
- api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator'};if(path==='/api/auth/me')return {csrfToken:'token'};return {provenance:'synthetic'};},
+ const context={allowedExtensions,acceptsFile,unavailableFormatText,rejectedFileText,console,Date,JSON,Set,Math,AbortController,trackGoal,watchDiagnostic,observeDiagnostic,document:{hidden:false,getElementById:get,createElement:tag=>new Element(tag)},window:{addEventListener:(name,fn)=>events[name]=fn},setInterval:()=>1,clearInterval(){},
+ api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};return {provenance:'synthetic'};},
  ApiError:class extends Error{},artifactPath:()=>'/artifact',setCsrfToken(){},guestSession:async()=>{},UPLOAD_CAP:1000,uploadStageText:x=>x,
  getJobs:async()=>({jobs:[],nextCursor:null}),getJob:async id=>({id,state:'completed',inputHash:'b'.repeat(64)}),createJob:async()=>({id:'a'.repeat(32)}),cancelJob(){},deleteJob(){},
  startPolling:()=>{const poller={stopped:false,stop(){this.stopped=true;},refresh:async()=>{}};pollers.push(poller);return poller;},statusText:x=>x,terminal:new Set(['completed']),jobAxes:()=>[],jobArtifacts:()=>[],
@@ -50,7 +52,7 @@ test('failed check detail fetch retries when reopened and caches successful deta
 test('interrupted upload retains last server acknowledgement until next attempt',async()=>{
  const app=await appHarness({uploadFile:async(file,kind,csrf,progress)=>{progress({phase:'ack',done:5,total:10,acknowledged:5});throw new Error('offline');}});
  app.get('input-file').files=[{name:'model.zip',size:10}];await app.get('upload-form').events.submit({preventDefault(){}});
- assert.match(app.get('upload-heartbeat').textContent,/последний ответ сервера/);assert.match(app.get('upload-heartbeat').textContent,/с назад/);
+ assert.match(app.get('upload-message').textContent,/Повторно выберите тот же файл/);assert.match(app.get('upload-heartbeat').textContent,/последний ответ сервера/);assert.match(app.get('upload-heartbeat').textContent,/с назад/);
 });
 
 test('BFCache reopens the selected private job without duplicating initial polling',async()=>{
@@ -58,4 +60,30 @@ test('BFCache reopens the selected private job without duplicating initial polli
  await app.events.pageshow({persisted:false});assert.equal(app.pollers.length,1);
  await vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);assert.equal(reads,1);
  app.events.pagehide();await app.events.pageshow({persisted:true});assert.equal(reads,2);assert.equal(app.pollers.length,2);assert.equal(app.get('report-panel').hidden,false);assert.match(app.get('preview-provenance').textContent,/ПРИВАТНЫЙ ПАКЕТ/);
+});
+
+test('capabilities populate accept, explain native engine and block forced RVT submit and drop',async()=>{
+ let uploads=0,jobs=0;
+ const app=await appHarness({uploadFile:async()=>{uploads++;},createJob:async()=>{jobs++;}});
+ assert.equal(app.get('input-file').getAttribute('accept'),'.zip');assert.equal(app.get('input-file').disabled,false);
+ assert.equal(app.get('input-kind').children.length,2);
+ assert.match(app.get('input-format-reasons').children[0].textContent,/Обработка RVT пока недоступна: серверный движок не подключён/);
+ app.get('upload-zone').events.drop({preventDefault(){},dataTransfer:{files:[{name:'MODEL.RVT',size:10}]}});
+ assert.equal(app.get('upload-submit').disabled,true);
+ await app.get('upload-form').events.submit({preventDefault(){}});
+ assert.equal(uploads,0);assert.equal(jobs,0);
+});
+for(const inputFormats of [null,undefined]) test(`config failure remains closed after successful auth ${String(inputFormats)}`,async()=>{
+  let uploads=0;
+  const app=await appHarness({api:async path=>path==='/api/config'?{sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats}:{csrfToken:'token',limits:{uploadBytes:500}},uploadFile:async()=>{uploads++;}});
+  app.get('input-file').files=[{name:'model.zip',size:10}];
+  await app.get('upload-form').events.submit({preventDefault(){}});
+  assert.equal(app.get('upload-submit').disabled,true);assert.equal(uploads,0);assert.match(app.get('session-message').textContent,/Загрузка недоступна/);
+});
+test('authenticated limits preserve server matrix and explicit ZIP choice',async()=>{
+ let received;
+ const app=await appHarness({api:async path=>path==='/api/config'?{sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats}:{csrfToken:'token',limits:{uploadBytes:500}},uploadFile:async(file,kind,csrf,progress,signal,limits)=>{received={kind,limits};return {id:'a'.repeat(32)};}});
+ app.get('input-file').files=[{name:'model.zip',size:10}];app.get('input-kind').value='zip-fbx';app.get('input-kind').events.change();
+ await app.get('upload-form').events.submit({preventDefault(){}});
+ assert.equal(received.kind,'zip-fbx');assert.equal(received.limits.inputFormats,formats);assert.equal(received.limits.uploadBytes,500);
 });

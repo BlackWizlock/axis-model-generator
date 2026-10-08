@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 from model_generator import __version__
+from model_generator.input_descriptor import input_filename
 from model_generator.validator import validate_path
 from model_generator.limits import Limits, ReadError
 from model_generator.diagnostics import Report, Finding
@@ -39,7 +40,9 @@ class ValidationResult:
 
 
 def validate_input(input_path: Path, kind: str, settings: ChildSettings, observer=None) -> ValidationResult:
-    if input_path.parent.resolve() != settings.scratch.resolve() or input_path.is_symlink() or input_path.name != 'input.zip':
+    if (input_path.parent.resolve() != settings.scratch.resolve()
+            or input_path.is_symlink()
+            or input_path.name not in {'input.zip', 'input.bin'}):
         raise ValueError('Unsafe child input')
     preview_path=None
     preview_reason=None
@@ -83,9 +86,10 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument('--kind', choices=('zip-fbx', 'portable-package'), required=True)
     parser.add_argument('--scratch', type=Path, required=True)
+    parser.add_argument('--descriptor-version', type=int, choices=(0, 1), default=0)
     parser.add_argument('--input-hash')
     parser.add_argument('--attempt')
     parser.add_argument('--preview-max-instances',type=int,default=1000)
@@ -143,10 +147,10 @@ def main():
                     try: path.open('rb')
                     except PermissionError: denied.append(label)
                     else: raise ValueError('Forbidden source opened')
-                (args.scratch/'guard.json').write_text(json.dumps({'denied':denied,'ownInput':(args.scratch/'input.zip').read_bytes()==b'not-a-zip'}))
+                (args.scratch/'guard.json').write_text(json.dumps({'denied':denied,'ownInput':(args.scratch/input_filename(args.descriptor_version)).read_bytes()==b'not-a-zip'}))
         from .progress import Observer
         observer = Observer(args.scratch, args.input_hash, args.attempt) if args.attempt else None
-        result = validate_input(args.scratch / 'input.zip', args.kind,
+        result = validate_input(args.scratch / input_filename(args.descriptor_version), args.kind,
                                 ChildSettings(args.scratch,preview_limits=preview_limits),observer)
         import resource
         # Preview stage uses 16 MiB; report stage is explicitly capped at 4 MiB.

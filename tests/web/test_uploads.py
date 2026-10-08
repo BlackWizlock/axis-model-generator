@@ -42,7 +42,7 @@ class UploadHTTPTests(unittest.TestCase):
         data=b'x'*1048576; row=self.reserve(data)
         self.assertEqual(row.status_code,201,row.text); id=row.json()['id']
         done=self.put(id,data); self.assertEqual(done.status_code,200,done.text)
-        self.assertEqual(done.json(),{'id':id,'state':'ready','bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+        self.assertEqual(done.json(),{'id':id,'state':'ready','bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(),'descriptorVersion':0})
         self.assertEqual(self.put(id,data).status_code,409)
         self.assertEqual(self.client.get('/api/uploads/'+id).status_code,200)
         self.assertEqual(self.client.delete('/api/uploads/'+id,headers=self.headers).status_code,204)

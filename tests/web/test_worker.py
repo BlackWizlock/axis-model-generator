@@ -41,6 +41,154 @@ class WorkerTests(unittest.TestCase):
         self.headers={'Origin':'https://testserver','X-CSRF-Token':self.owner['csrf']}
     def worker_settings(self):
         return replace(self.settings,db_role='mg_worker',database_url=secret('MG_TEST_WORKER_DATABASE_URL'))
+    def versioned_upload(self, version, data=b'not-a-zip', kind='zip-fbx'):
+        response=self.client.post('/api/uploads',json={'kind':kind,'displayName':'model.zip',
+            'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(),'descriptorVersion':version},headers=self.headers)
+        self.assertEqual(response.status_code,201,response.text)
+        id=response.json()['id']
+        response=self.client.put('/api/uploads/'+id+'/content',content=data,
+            headers={**self.headers,'Content-Type':'application/octet-stream'})
+        self.assertEqual(response.status_code,200,response.text)
+        return id
+
+    def test_legacy_and_neutral_diagnostics_keep_same_reader_report_and_hash(self):
+        from unittest.mock import patch
+        from model_generator.web.worker import _verified_download
+        reports=[]
+        settings=self.worker_settings(); db=Database(settings)
+        try:
+            for version,basename in ((0,'input.zip'),(1,'input.bin')):
+                dto=self.create(self.versioned_upload(version)).json(); paths=[]
+                def download(objects,descriptor,path,max_bytes):
+                    _verified_download(objects,descriptor,path,max_bytes)
+                    paths.append(path.name)
+                    self.assertEqual(path.read_bytes(),b'not-a-zip')
+                with worker_lease(db,settings,'a'*32),patch('model_generator.web.worker._verified_download',download):
+                    self.assertTrue(run_once(db,settings,'a'*32))
+                self.assertEqual(paths,[basename])
+                result=self.app.state.jobs.get_owned(self.owner['userId'],dto['id'],int(time.time()))
+                self.assertEqual(result['state'],'completed')
+                reports.append(self.client.get(result['artifacts'][0]['url']).json())
+            for report in reports:
+                self.assertEqual(report['input_sha256'],hashlib.sha256(b'not-a-zip').hexdigest())
+                self.assertTrue(any(f['status']=='fail' for f in report['findings']))
+            # Operational observation timestamps belong to separate attempts.
+            reader_reports=[{k:v for k,v in report.items() if k!='check_evidence'} for report in reports]
+            self.assertEqual(reader_reports[0],reader_reports[1])
+        finally: db.close()
+
+    def test_changed_descriptor_fails_before_download_or_child(self):
+        from unittest.mock import patch
+        from model_generator.web.worker import _checked_input
+        settings=self.worker_settings(); db=Database(settings)
+        changes=[('owner_id','0'*32),('input_kind','portable-package'),('sha256','0'*64),
+                 ('object_sha256','0'*64),('declared_bytes',99),('object_bytes',99),
+                 ('descriptor_version',2),('display_name','different.zip'),
+                 ('input_descriptor',{'version':1}),('object_key','owners/'+'0'*32+'/input.bin')]
+        try:
+            for field,value in changes:
+                with self.subTest(field=field):
+                    response=self.create(self.versioned_upload(1)); self.assertEqual(response.status_code,201,response.text)
+                    dto=response.json()
+                    def changed(job,upload):
+                        return _checked_input(job,{**upload,field:value})
+                    with (worker_lease(db,settings,'b'*32),
+                          patch('model_generator.web.worker._checked_input',changed),
+                          patch('model_generator.web.worker._verified_download',side_effect=AssertionError('Changed source downloaded')),
+                          patch('model_generator.web.worker.run_child',side_effect=AssertionError('Changed source parsed'))):
+                        self.assertTrue(run_once(db,settings,'b'*32))
+                    with db.connect() as con:
+                        row=con.execute('SELECT state,failure_code FROM jobs WHERE id=%s',(dto['id'],)).fetchone()
+                        self.assertEqual(row,{'state':'failed','failure_code':'input_descriptor_mismatch'})
+                        self.assertEqual(con.execute("SELECT count(*) AS n FROM artifacts WHERE job_id=%s AND state='ready'",(dto['id'],)).fetchone()['n'],0)
+                    # Failed jobs retain their output reserve until orphan cleanup.
+                    # Exercise the real cleanup rather than exhausting owner quota.
+                    sweep(db,settings,int(time.time())+901)
+        finally: db.close()
+
+    def test_neutral_cancel_or_stale_epoch_after_download_cannot_run_child(self):
+        from unittest.mock import patch
+        from model_generator.web.worker import _verified_download
+        settings=self.worker_settings(); db=Database(settings)
+        try:
+            for mutation in ('cancel_requested=TRUE',"worker_epoch='"+'e'*32+"'"):
+                with self.subTest(mutation=mutation):
+                    response=self.create(self.versioned_upload(1)); self.assertEqual(response.status_code,201,response.text)
+                    dto=response.json()
+                    def download(objects,descriptor,path,max_bytes):
+                        _verified_download(objects,descriptor,path,max_bytes)
+                        with db.transaction() as con:
+                            con.execute('UPDATE jobs SET '+mutation+' WHERE id=%s',(dto['id'],))
+                    with (worker_lease(db,settings,'c'*32),patch('model_generator.web.worker._verified_download',download),
+                          patch('model_generator.web.worker.run_child',side_effect=AssertionError('Fenced child ran'))):
+                        self.assertTrue(run_once(db,settings,'c'*32))
+                    with db.connect() as con:
+                        row=con.execute('SELECT state,checkpoint FROM jobs WHERE id=%s',(dto['id'],)).fetchone()
+                        self.assertNotEqual(row['state'],'completed'); self.assertIsNone(row['checkpoint'])
+                        self.assertEqual(con.execute("SELECT count(*) AS n FROM artifacts WHERE job_id=%s AND state='ready'",(dto['id'],)).fetchone()['n'],0)
+        finally: db.close()
+
+    def test_actual_sigkill_neutral_reclaim_downloads_fresh_verified_file(self):
+        import signal,subprocess,sys
+        from unittest.mock import patch
+        from model_generator.web.worker import _verified_download
+        response=self.create(self.versioned_upload(1)); self.assertEqual(response.status_code,201,response.text)
+        dto=response.json()
+        settings=self.worker_settings(); marker=settings.data_root/'download-closed'
+        # Kill an actual isolated worker after verified download, before parsing.
+        program='''
+import pathlib,sys,time
+from dataclasses import replace
+from unittest.mock import patch
+from web.helpers import settings_for,secret
+from model_generator.web.db import Database
+from model_generator.web.worker import worker_lease,run_once,_verified_download
+root=pathlib.Path(sys.argv[1])
+settings=replace(settings_for(root),db_role='mg_worker',database_url=secret('MG_TEST_WORKER_DATABASE_URL'))
+db=Database(settings)
+def download(objects,descriptor,path,max_bytes):
+    _verified_download(objects,descriptor,path,max_bytes)
+    (root/'download-closed').write_text(str(path))
+    while True: time.sleep(.05)
+with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verified_download',download):
+    run_once(db,settings,'d'*32)
+'''
+        process=subprocess.Popen([sys.executable,'-c',program,str(settings.data_root)],
+            stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,close_fds=True)
+        try:
+            deadline=time.monotonic()+15
+            while not marker.exists():
+                if process.poll() is not None:
+                    self.fail('Dedicated worker exited: '+process.stderr.read().decode())
+                if time.monotonic()>=deadline: self.fail('Dedicated worker download deadline')
+                time.sleep(.02)
+            old_path=Path(marker.read_text()); self.assertEqual(old_path.name,'input.bin')
+            self.assertEqual(old_path.read_bytes(),b'not-a-zip')
+            os.kill(process.pid,signal.SIGKILL)
+            self.assertEqual(process.wait(timeout=5),-signal.SIGKILL)
+            db=Database(settings); downloads=[]
+            try:
+                with worker_lease(db,settings,'e'*32):
+                    recover(db,settings,'e'*32,int(time.time()))
+                    self.assertFalse(old_path.exists())
+                    def download(objects,descriptor,path,max_bytes):
+                        _verified_download(objects,descriptor,path,max_bytes)
+                        downloads.append(path)
+                        self.assertEqual(path.name,'input.bin'); self.assertNotEqual(path,old_path)
+                        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),descriptor.sha256)
+                    with patch('model_generator.web.worker._verified_download',download):
+                        self.assertTrue(run_once(db,settings,'e'*32))
+                self.assertEqual(len(downloads),1)
+                with db.connect() as con:
+                    self.assertEqual(con.execute('SELECT state,attempts FROM jobs WHERE id=%s',(dto['id'],)).fetchone(),{'state':'completed','attempts':2})
+                result=self.app.state.jobs.get_owned(self.owner['userId'],dto['id'],int(time.time()))
+                report=self.client.get(result['artifacts'][0]['url']).json()
+                self.assertEqual(report['input_sha256'],hashlib.sha256(b'not-a-zip').hexdigest())
+            finally: db.close()
+        finally:
+            if process.poll() is None: process.kill(); process.wait(timeout=5)
+            process.stderr.close()
+
     def kill_dedicated_lease(self, db, *, wait=True):
         # Only the actual advisory-lock backend dies; API/S3/PostgreSQL stay live.
         with admin_connect() as con:
@@ -425,6 +573,15 @@ class WorkerTests(unittest.TestCase):
 
 
 class ChildControlTests(unittest.TestCase):
+    def test_neutral_version_uses_real_guarded_reader(self):
+        from web.helpers import settings_for
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch=Path(tmp); (scratch/'input.bin').write_bytes(b'not-a-zip')
+            result,code=run_child(settings_for(scratch),scratch,'zip-fbx',lambda:False,descriptor_version=1)
+            self.assertIsNone(code)
+            self.assertEqual(result['report']['input_sha256'],hashlib.sha256(b'not-a-zip').hexdigest())
+            self.assertTrue(any(f['status']=='fail' for f in result['report']['findings']))
+
     def test_compressed_oversized_member_fails_inside_guarded_child(self):
         import zipfile
         from web.helpers import settings_for

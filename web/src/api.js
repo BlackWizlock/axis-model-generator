@@ -1,3 +1,4 @@
+import {validInputFormats} from './input-formats.js';
 const SAFE_MESSAGES = {
   401: 'Сессия завершена. Обновите страницу, чтобы продолжить.', 403: 'Действие не разрешено. Обновите страницу и повторите попытку.',
   404: 'Результат недоступен.', 408: 'Время ожидания истекло. Повторите попытку.',
@@ -67,5 +68,6 @@ export async function api(path, options = {}) {
   if (response.status === 204) return {};
   const value = await readJson(response, maxBytes);
   if (!response.ok) throw ApiError.from(value.error, response.status);
+  if (path === '/api/config' && !validInputFormats(value.inputFormats)) throw new ApiError('invalid_config');
   return value;
 }

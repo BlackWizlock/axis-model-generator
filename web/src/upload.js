@@ -1,4 +1,5 @@
 import {api, ApiError, opaqueId} from './api.js';
+import {acceptsFile,validInputFormats,rejectedFileText} from './input-formats.js';
 import {Sha256} from './sha256.js';
 export const UPLOAD_CAP = 256 * 1024 * 1024;
 export const CHUNK_BYTES = 8 * 1024 * 1024;
@@ -24,9 +25,15 @@ export function hashFile(file, onProgress, signal) {
     worker.postMessage({file});
   });
 }
+function descriptorVersion(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) throw new ApiError('invalid_response');
+  const version = row?.descriptorVersion === undefined ? 0 : row.descriptorVersion;
+  if (version !== 0 && version !== 1) throw new ApiError('invalid_response');
+  return version;
+}
 export function validateUpload(row, source) {
   opaqueId(row.id);
-  if (row.sha256 !== source.sha256 || row.kind !== source.kind || row.totalBytes !== source.bytes || row.chunkBytes !== CHUNK_BYTES ||
+  if (descriptorVersion(row) !== descriptorVersion(source) || row.sha256 !== source.sha256 || row.kind !== source.kind || row.totalBytes !== source.bytes || row.chunkBytes !== CHUNK_BYTES ||
       !Number.isSafeInteger(row.acknowledgedBytes) || row.acknowledgedBytes < 0 || row.acknowledgedBytes > source.bytes ||
       (row.acknowledgedBytes !== source.bytes && row.acknowledgedBytes % CHUNK_BYTES !== 0) ||
       !['receiving','finalizing','ready','failed','deleting','deleted'].includes(row.state) ||
@@ -65,17 +72,24 @@ function pause(signal) {
 export async function uploadFile(file,kind,csrf,onProgress,signal,limits={}) {
   const cap = Math.min(UPLOAD_CAP,Number.isSafeInteger(limits.uploadBytes) ? limits.uploadBytes : UPLOAD_CAP);
   if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > cap) throw new ApiError('upload_too_large',413);
-  if (!['zip-fbx','portable-package'].includes(kind) || !file.name?.toLowerCase().endsWith('.zip')) throw new ApiError('invalid_upload',422);
+  const rows = limits.inputFormats === undefined ? [
+    {id:'zip-fbx',extensions:['.zip'],upload:true}, {id:'portable-package',extensions:['.zip'],upload:true}
+  ] : limits.inputFormats;
+  if ((limits.inputFormats !== undefined && !validInputFormats(rows)) || !acceptsFile(file,kind,rows)) {
+    const error = new ApiError('invalid_upload',422); error.message = rejectedFileText(file,rows); throw error;
+  }
   const sha256 = await hashFile(file,(done,total) => onProgress({phase:'hash',done,total}),signal);
-  signal?.throwIfAborted(); const source = {sha256,kind,bytes:file.size}; let row;
+  signal?.throwIfAborted(); const source = {sha256,kind,bytes:file.size,descriptorVersion:1}; let row;
   try {
     const pending = await api('/api/uploads',{signal});
     if (!Array.isArray(pending.uploads) || pending.uploads.length > 20) throw new ApiError('invalid_response');
-    row = pending.uploads.find(item => item.sha256 === sha256 && item.totalBytes === file.size && item.kind === kind && ['receiving','finalizing','ready'].includes(item.state));
+    pending.uploads.forEach(descriptorVersion);
+    row = pending.uploads.find(item => descriptorVersion(item) === source.descriptorVersion && item.sha256 === sha256 && item.totalBytes === file.size && item.kind === kind && ['receiving','finalizing','ready'].includes(item.state));
     if (!row) {
       // Keep reservation response even if cancellation races it; delete only this ID.
-      const reserved = await api('/api/uploads',{method:'POST',csrf,body:{kind,displayName:file.name,bytes:file.size,sha256}});
+      const reserved = await api('/api/uploads',{method:'POST',csrf,body:{kind,displayName:file.name,bytes:file.size,sha256,descriptorVersion:1}});
       row = {id:opaqueId(reserved.id)};
+      if (descriptorVersion(reserved) !== source.descriptorVersion) throw new ApiError('invalid_response');
       signal?.throwIfAborted(); row = await api(`/api/uploads/${row.id}`,{signal});
     }
     validateUpload(row,source); onProgress({phase:'ack',done:row.acknowledgedBytes,total:file.size,part:row.nextPart,resumed:row.acknowledgedBytes > 0});

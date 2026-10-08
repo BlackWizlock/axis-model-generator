@@ -226,9 +226,15 @@ class ObjectStore:
         self.client._endpoint.http_session.close()
         self.client._endpoint.http_session=self.transport
     def _key(self,key):
-        if not re.fullmatch(r'owners/[a-f0-9]{32}/(?:uploads|jobs)/[a-f0-9]{32}/[a-f0-9]{32}/(?:input\.zip|report\.json|preview\.json|preview-input\.json|thumbnail\.png|measurements\.json)',key):
+        if not re.fullmatch(r'owners/[a-f0-9]{32}/(?:uploads|jobs)/[a-f0-9]{32}/[a-f0-9]{32}/(?:input\.zip|input\.bin|report\.json|preview\.json|preview-input\.json|thumbnail\.png|measurements\.json)',key):
             raise ValueError('Invalid private object key')
         return {'Bucket':self.settings.bucket,'Key':key}
+    @staticmethod
+    def _content_type(key):
+        if key.endswith('/input.bin'): return 'application/octet-stream'
+        if key.endswith('/input.zip'): return 'application/zip'
+        if key.endswith('/thumbnail.png'): return 'image/png'
+        return 'application/json'
     def put_file(self,intent,path,persist_multipart):
         deadline=min(time.monotonic()+600,intent.deadline or float('inf'))
         try:
@@ -246,7 +252,7 @@ class ObjectStore:
         if total!=intent.reserved_bytes: raise ApiError('upload_size_mismatch','Upload size does not match.',409)
         digest=sha.hexdigest()
         try:
-            content_type='image/png' if intent.key.endswith('/thumbnail.png') else 'application/zip' if intent.key.endswith('/input.zip') else 'application/json'
+            content_type=self._content_type(intent.key)
             multipart=self.client.create_multipart_upload(**args,ContentType=content_type,Metadata={'sha256':digest})['UploadId']
             persist_multipart(multipart)  # Durable ID before any bytes, callback also fences abort.
             parts=[]
@@ -274,7 +280,7 @@ class ObjectStore:
                 ids=[item['UploadId'] for item in result.get('Uploads',[]) if item['Key']==intent.key]
                 if len(ids)>1: raise RuntimeError
                 if ids: return ids[0]
-                return self.client.create_multipart_upload(**args,ContentType='application/zip',Metadata={'sha256':sha256})['UploadId']
+                return self.client.create_multipart_upload(**args,ContentType=self._content_type(intent.key),Metadata={'sha256':sha256})['UploadId']
         except (ClientError,BotoCoreError,OSError,TimeoutError,RuntimeError):
             raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
 
@@ -328,7 +334,7 @@ class ObjectStore:
                         if stream is not None: stream.close()
                 if total!=size or digest.hexdigest()!=expected_sha:
                     raise ApiError('upload_hash_mismatch','Stored input hash does not match.',409)
-                return ObjectDescriptor(intent.key,total,digest.hexdigest(),'application/zip')
+                return ObjectDescriptor(intent.key,total,digest.hexdigest(),self._content_type(intent.key))
         except (ClientError,BotoCoreError,OSError,TimeoutError):
             raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
 
