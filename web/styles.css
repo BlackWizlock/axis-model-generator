@@ -303,11 +303,11 @@ nav{display:none}
 @media(forced-colors:active){.select-field::after{border-color:ButtonText}}
 
 .select-field select{font-size:var(--text-body)}
-/* Native keyboard semantics with a separate anchored picker where supported. */
+/* Keep native picker placement and viewport fallbacks where supported. */
 @supports(appearance:base-select){
  .select-field select,.select-field select::picker(select){appearance:base-select}
  .select-field select::picker-icon{display:none}
- .select-field select::picker(select){inset:auto;top:calc(anchor(bottom) + 6px);left:anchor(left);width:anchor-size(width);margin:0;border:1px solid var(--border);border-radius:9px;padding:5px;background:var(--card);color:var(--foreground);font:var(--text-body)/1.65 var(--font-sans);box-shadow:0 12px 30px hsl(215 17% 4% / .16);position-area:none;position-try-order:normal;position-try-fallbacks:none}
+ .select-field select::picker(select){inset:auto;width:anchor-size(width);margin:0;border:1px solid var(--border);border-radius:9px;padding:5px;background:var(--card);color:var(--foreground);font:var(--text-body)/1.65 var(--font-sans);box-shadow:0 12px 30px hsl(215 17% 4% / .16)}
  .select-field option{padding:9px 12px;border-radius:5px;cursor:pointer}
  .select-field option:hover,.select-field option:focus{background:var(--muted)}
  .select-field option:checked{background:var(--surface);color:var(--primary);font-weight:600}
