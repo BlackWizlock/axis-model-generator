@@ -19,7 +19,7 @@ SECURITY_HEADERS={
     'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
 }
 
-PUBLIC_HTML_CSP=SECURITY_HEADERS['Content-Security-Policy'].replace("script-src 'self'","script-src 'self' https://mc.yandex.ru https://yastatic.net").replace("connect-src 'self'","connect-src 'self' https://mc.yandex.ru").replace("img-src 'self' data:","img-src 'self' data: https://mc.yandex.ru")
+PUBLIC_HTML_CSP=SECURITY_HEADERS['Content-Security-Policy'].replace("script-src 'self'","script-src 'self' https://mc.yandex.ru https://mc.yandex.com https://yastatic.net").replace("connect-src 'self'","connect-src 'self' https://mc.yandex.ru https://mc.yandex.com").replace("img-src 'self' data:","img-src 'self' data: https://mc.yandex.ru https://mc.yandex.com")
 
 
 class ApiError(Exception):
