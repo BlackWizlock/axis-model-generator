@@ -15,10 +15,12 @@ UNCHECKED = ["silhouette", "self_intersections", "normals", "uv_padding", "geore
              "ground_perimeter", "source_revit_fidelity", "current_regulatory_applicability"]
 
 
-def validate_bytes(data, limits=None):
+def validate_bytes(data, limits=None, observer=None):
     limits = limits or Limits()
     report = Report(input_sha256=hashlib.sha256(data).hexdigest(), profile=dict(PROFILE))
+    if observer: observer("input.archive", "checking")
     archive = read_archive(data, limits)
+    if observer: observer("input.archive", "passed", archive.findings)
     report.findings.extend(archive.findings)
     if archive.wrapped:
         report.findings.append(Finding("package.wrapper", "warn", "", True, None,
@@ -29,6 +31,7 @@ def validate_bytes(data, limits=None):
     ground = [entry for entry in entries if PurePosixPath(entry.name).stem.lower().endswith("_ground")]
     report.findings.append(Finding("package.ground", "warn" if len(ground) == 1 else "fail",
                                    "", len(ground), 1, "Ground identification uses filename heuristic", "profile"))
+    if observer: observer("input.fbx", "checking")
     for entry in entries:
         try:
             tree = parse_fbx(entry.data, limits)
@@ -51,6 +54,7 @@ def validate_bytes(data, limits=None):
             status = "unsupported" if exc.rule == "fbx.unsupported" else "failed"
             report.files.append({"file": entry.name, "sha256": entry.sha256, "bytes": len(entry.data), "read_status": status})
             report.findings.append(Finding(exc.rule, "fail", entry.name, None, None, str(exc)))
+    if observer: observer("input.fbx", "passed" if entries else "not_checked", [f for f in report.findings if f.rule_id.startswith(("fbx.", "png.", "profile."))])
     for rule in UNCHECKED:
         report.findings.append(Finding(rule, "not_checked", "", None, None, "No validated algorithm or evidence", "procedure"))
     for rule in ["architecture_council_defence", "approval_for_vpm"]:
@@ -60,7 +64,7 @@ def validate_bytes(data, limits=None):
     return report
 
 
-def validate_path(path, limits=None):
+def validate_path(path, limits=None, observer=None):
     limits = limits or Limits()
     with open(path, "rb") as stream:
         # Seek before reading so an oversized regular file is never allocated.
@@ -70,4 +74,4 @@ def validate_path(path, limits=None):
             raise ReadError("zip.budget", "Input size exceeds budget")
         stream.seek(0)
         data = stream.read(limits.input_bytes + 1)
-    return validate_bytes(data, limits)
+    return validate_bytes(data, limits, observer)

@@ -1,0 +1,6 @@
+# check=error=true
+FROM caddy:2.9.1@sha256:748016f285ed8c43a9ce6e3aed6d92d3009d90ca41157950880f40beaf3ff62b
+# No privileged TCP listener is used. Copying removes the base binary file
+# capability, allowing non-root execution with ALL capabilities dropped.
+RUN cp /usr/bin/caddy /tmp/caddy && mv /tmp/caddy /usr/bin/caddy
+USER 10001:10001

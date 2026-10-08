@@ -1,0 +1,52 @@
+services:
+  backup-proxy:
+    image: ${MG_PROXY_IMAGE:?}
+    user: 10001:10001
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001"]
+    networks: [mg_backup_files, mg_backup_egress]
+    profiles: [backup]
+  backup:
+    image: ${MG_BACKUP_IMAGE:?}
+    user: 10001:10001
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      MG_BACKUP_BUCKET: ${MG_BACKUP_BUCKET:?}
+      MG_BACKUP_REGION: ru-central1
+      MG_BACKUP_PROXY_URL: http://backup-proxy:8080
+      MG_BACKUP_DATABASE_URL_FILE: /run/secrets/backup_dsn
+      MG_BACKUP_ACCESS_KEY_FILE: /run/secrets/backup_access
+      MG_BACKUP_SECRET_KEY_FILE: /run/secrets/backup_secret
+    secrets: [backup_dsn, backup_access, backup_secret]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=256m,uid=10001,gid=10001"]
+    networks: [mg_db, mg_backup_files]
+    depends_on:
+      backup-proxy:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    profiles: [backup]
+networks:
+  mg_backup_files:
+    internal: true
+  mg_backup_egress: {}
+secrets:
+  backup_dsn:
+    file: ${MG_BACKUP_SECRET_ROOT:?}/backup_dsn
+  backup_access:
+    file: ${MG_BACKUP_SECRET_ROOT:?}/backup_access
+  backup_secret:
+    file: ${MG_BACKUP_SECRET_ROOT:?}/backup_secret

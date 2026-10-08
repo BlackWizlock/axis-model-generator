@@ -27,6 +27,12 @@ NOTICE = (
     "Axis Platform https://axisplatform.ru\n"
 ).encode("utf-8")
 EXTERNAL_LINKS = {
+    "https://github.com/numpy/numpy/tree/v2.5.3",
+    "https://github.com/python-pillow/Pillow/tree/12.3.0",
+    "https://download.blender.org/release/Blender4.5/blender-4.5.14-linux-x64.tar.xz",
+    "https://download.blender.org/source/blender-4.5.14.tar.xz",
+    "https://pypi.org/pypi/numpy/2.5.3/json",
+    "https://pypi.org/pypi/Pillow/12.3.0/json",
     "https://axisconsult.ru", "https://axisplatform.ru",
     "https://www.apache.org/licenses/LICENSE-2.0.txt",
     "https://github.com/BlackWizlock/axis-model-generator/security/advisories",

@@ -60,6 +60,31 @@ class PublicExportTests(unittest.TestCase):
             self.assertNotIn(value, str(caught.exception))
         return str(caught.exception)
 
+
+    def test_reviewed_binary_is_exact_and_unreviewed_binary_still_rejected(self):
+        path='web/assets/axis-sign.png'
+        data=(SCRIPT.parents[1]/path).read_bytes()
+        self.exporter._permitted(path,source=True)
+        self.exporter._scan(data,path,[])
+        with self.assertRaises(self.exporter.ExportError):self.exporter._scan(data+b'changed',path,[])
+        with self.assertRaises(self.exporter.ExportError):self.exporter._permitted('web/assets/client.png',source=True)
+        with self.assertRaises(self.exporter.ExportError):self.exporter._scan(b'\x00\xff','web/assets/client.woff2',[])
+
+    def test_only_approved_public_contact_at_reviewed_paths_is_allowed(self):
+        email='info'+'@'+'axisconsult.ru'
+        self.exporter._scan(email.encode(),'web/index.html',[])
+        with self.assertRaises(self.exporter.ExportError):self.exporter._scan(email.encode(),'src/private.py',[])
+        with self.assertRaises(self.exporter.ExportError):self.exporter._scan(('personal'+'@'+'axisconsult.ru').encode(),'web/index.html',[])
+
+    def test_export_preserves_reviewed_executable_mode(self):
+        self.write('src/example.py',"print('public')\n")
+        (self.repo/'src/example.py').chmod(0o755)
+        self.inventory();revision=self.commit()
+        self.exporter.build_export(self.repo,self.output,revision)
+        self.assertEqual((self.output/'src/example.py').stat().st_mode&0o777,0o755)
+        with zipfile.ZipFile(self.output.with_suffix('.zip')) as archive:
+            self.assertEqual((archive.getinfo('src/example.py').external_attr>>16)&0o777,0o755)
+
     def test_committed_bytes_inventory_hashes_and_no_private_history(self):
         self.write(".env", "synthetic private value")
         self.write("_input/client.rvt", "DummyCustomer private model")

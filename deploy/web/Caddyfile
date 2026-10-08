@@ -1,0 +1,12 @@
+# Import this site in the existing ingress after its network preflight.
+{$MG_PUBLIC_HOST} {
+    request_body {
+        max_size 256MB
+    }
+    reverse_proxy api:8000 {
+        transport http {
+            dial_timeout 3s
+            response_header_timeout 600s
+        }
+    }
+}

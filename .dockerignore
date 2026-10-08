@@ -1,0 +1,16 @@
+.git
+.worktrees
+.superpowers
+.web-test-runtime
+_scratch
+_input
+_output
+.local
+web/node_modules
+web/dist
+web/coverage
+**/__pycache__
+.env
+.env.*
+
+!deploy/web/.env.example

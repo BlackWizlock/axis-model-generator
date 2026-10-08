@@ -20,7 +20,11 @@ LABEL = "com.axis.model-generator.project"
 PURPOSE = "com.axis.model-generator.purpose"
 DOCKERFILE_LABEL = "com.axis.model-generator.dockerfile-sha256"
 REVISION_LABEL = "org.opencontainers.image.revision"
-TEST_COMMAND = ["python", "-m", "unittest", "discover", "-s", "tests", "-v"]
+CORE_SUITE = ("from pathlib import Path; import unittest; suite=unittest.TestSuite(); "
+              "[suite.addTests(unittest.defaultTestLoader.discover('tests',pattern=p.name)) "
+              "for p in sorted(Path('tests').glob('test_*.py'))]; "
+              "result=unittest.TextTestRunner(verbosity=1).run(suite); raise SystemExit(not result.wasSuccessful())")
+TEST_COMMAND = ['python', '-c', CORE_SUITE]
 IMAGE_FORMAT = ('{"id":{{json .Id}},"os":{{json .Os}},'
                 '"architecture":{{json .Architecture}},"labels":{{json .Config.Labels}}}')
 CONTAINER_FORMAT = ('{"name":{{json .Name}},"user":{{json .Config.User}},'
@@ -354,7 +358,7 @@ def build(repo, revision, output, *, archive=False, private_policy=None):
     except PipelineError as exc:
         (output / "check-result.json").write_text(json.dumps({"exit_code": exc.exit_code, "status": "failed", "image_id": image_id}) + "\n")
         raise
-    (output / "check-result.json").write_text(json.dumps({"exit_code": 0, "status": "passed", "image_id": image_id}) + "\n")
+    (output / "check-result.json").write_text(json.dumps({"exit_code": 0, "status": "passed", "coverage": "core-only", "web": "not_checked", "image_id": image_id}) + "\n")
     run(["docker", "tag", image_id, tag])
     if archive:
         path = output / "image.tar.gz"

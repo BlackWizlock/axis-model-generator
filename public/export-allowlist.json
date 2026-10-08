@@ -196,6 +196,734 @@
     {
       "source": "docs/public/local-pipeline.md",
       "export": "docs/public/local-pipeline.md"
+    },
+    {
+      "source": ".dockerignore",
+      "export": ".dockerignore"
+    },
+    {
+      "source": "deploy/web/Caddyfile",
+      "export": "deploy/web/Caddyfile"
+    },
+    {
+      "source": "deploy/web/Dockerfile.api",
+      "export": "deploy/web/Dockerfile.api"
+    },
+    {
+      "source": "deploy/web/Dockerfile.backup",
+      "export": "deploy/web/Dockerfile.backup"
+    },
+    {
+      "source": "deploy/web/Dockerfile.frontend-test",
+      "export": "deploy/web/Dockerfile.frontend-test"
+    },
+    {
+      "source": "deploy/web/Dockerfile.proxy",
+      "export": "deploy/web/Dockerfile.proxy"
+    },
+    {
+      "source": "deploy/web/Dockerfile.s3-test-emulator",
+      "export": "deploy/web/Dockerfile.s3-test-emulator"
+    },
+    {
+      "source": "deploy/web/Dockerfile.test",
+      "export": "deploy/web/Dockerfile.test"
+    },
+    {
+      "source": "deploy/web/Dockerfile.worker",
+      "export": "deploy/web/Dockerfile.worker"
+    },
+    {
+      "source": "deploy/web/backup-timer.example",
+      "export": "deploy/web/backup-timer.example"
+    },
+    {
+      "source": "deploy/web/compose.test.yaml",
+      "export": "deploy/web/compose.test.yaml"
+    },
+    {
+      "source": "deploy/web/compose.yaml",
+      "export": "deploy/web/compose.yaml"
+    },
+    {
+      "source": "deploy/web/init-db.sh",
+      "export": "deploy/web/init-db.sh"
+    },
+    {
+      "source": "deploy/web/licenses/README.md",
+      "export": "deploy/web/licenses/README.md"
+    },
+    {
+      "source": "deploy/web/runtime-manifest.json",
+      "export": "deploy/web/runtime-manifest.json"
+    },
+    {
+      "source": "deploy/web/s3-proxy.py",
+      "export": "deploy/web/s3-proxy.py"
+    },
+    {
+      "source": "deploy/web/s3-test-init.py",
+      "export": "deploy/web/s3-test-init.py"
+    },
+    {
+      "source": "deploy/web/s3-test-proxy.py",
+      "export": "deploy/web/s3-test-proxy.py"
+    },
+    {
+      "source": "requirements-web-test.lock",
+      "export": "requirements-web-test.lock"
+    },
+    {
+      "source": "requirements-web.lock",
+      "export": "requirements-web.lock"
+    },
+    {
+      "source": "scripts/backup-web-db.py",
+      "export": "scripts/backup-web-db.py"
+    },
+    {
+      "source": "scripts/build-web.mjs",
+      "export": "scripts/build-web.mjs"
+    },
+    {
+      "source": "scripts/ci-web-deploy.py",
+      "export": "scripts/ci-web-deploy.py"
+    },
+    {
+      "source": "scripts/ci-web-worker-probes.sh",
+      "export": "scripts/ci-web-worker-probes.sh"
+    },
+    {
+      "source": "scripts/ci-web.sh",
+      "export": "scripts/ci-web.sh"
+    },
+    {
+      "source": "scripts/restore-web-db.py",
+      "export": "scripts/restore-web-db.py"
+    },
+    {
+      "source": "scripts/verify-web-deploy.py",
+      "export": "scripts/verify-web-deploy.py"
+    },
+    {
+      "source": "scripts/web-backup-common.py",
+      "export": "scripts/web-backup-common.py"
+    },
+    {
+      "source": "scripts/web-healthcheck.py",
+      "export": "scripts/web-healthcheck.py"
+    },
+    {
+      "source": "scripts/web-test-db-init.sh",
+      "export": "scripts/web-test-db-init.sh"
+    },
+    {
+      "source": "scripts/web-test-env.py",
+      "export": "scripts/web-test-env.py"
+    },
+    {
+      "source": "scripts/web-worker-healthcheck.py",
+      "export": "scripts/web-worker-healthcheck.py"
+    },
+    {
+      "source": "src/model_generator/web/__init__.py",
+      "export": "src/model_generator/web/__init__.py"
+    },
+    {
+      "source": "src/model_generator/web/app.py",
+      "export": "src/model_generator/web/app.py"
+    },
+    {
+      "source": "src/model_generator/web/artifacts.py",
+      "export": "src/model_generator/web/artifacts.py"
+    },
+    {
+      "source": "src/model_generator/web/auth.py",
+      "export": "src/model_generator/web/auth.py"
+    },
+    {
+      "source": "src/model_generator/web/auth_routes.py",
+      "export": "src/model_generator/web/auth_routes.py"
+    },
+    {
+      "source": "src/model_generator/web/blender_runner.py",
+      "export": "src/model_generator/web/blender_runner.py"
+    },
+    {
+      "source": "src/model_generator/web/checklist.py",
+      "export": "src/model_generator/web/checklist.py"
+    },
+    {
+      "source": "src/model_generator/web/chunk_uploads.py",
+      "export": "src/model_generator/web/chunk_uploads.py"
+    },
+    {
+      "source": "src/model_generator/web/config.py",
+      "export": "src/model_generator/web/config.py"
+    },
+    {
+      "source": "src/model_generator/web/db.py",
+      "export": "src/model_generator/web/db.py"
+    },
+    {
+      "source": "src/model_generator/web/diagnostic_catalog.py",
+      "export": "src/model_generator/web/diagnostic_catalog.py"
+    },
+    {
+      "source": "src/model_generator/web/job_routes.py",
+      "export": "src/model_generator/web/job_routes.py"
+    },
+    {
+      "source": "src/model_generator/web/jobs.py",
+      "export": "src/model_generator/web/jobs.py"
+    },
+    {
+      "source": "src/model_generator/web/journal.py",
+      "export": "src/model_generator/web/journal.py"
+    },
+    {
+      "source": "src/model_generator/web/migrate.py",
+      "export": "src/model_generator/web/migrate.py"
+    },
+    {
+      "source": "src/model_generator/web/migrations/001-auth.sql",
+      "export": "src/model_generator/web/migrations/001-auth.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/002-storage.sql",
+      "export": "src/model_generator/web/migrations/002-storage.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/003-jobs.sql",
+      "export": "src/model_generator/web/migrations/003-jobs.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/004-preview-runtime.sql",
+      "export": "src/model_generator/web/migrations/004-preview-runtime.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/005-guest-sessions.sql",
+      "export": "src/model_generator/web/migrations/005-guest-sessions.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/006-upload-chunks.sql",
+      "export": "src/model_generator/web/migrations/006-upload-chunks.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/007-diagnostics.sql",
+      "export": "src/model_generator/web/migrations/007-diagnostics.sql"
+    },
+    {
+      "source": "src/model_generator/web/preview.py",
+      "export": "src/model_generator/web/preview.py"
+    },
+    {
+      "source": "src/model_generator/web/preview_child.py",
+      "export": "src/model_generator/web/preview_child.py"
+    },
+    {
+      "source": "src/model_generator/web/preview_runner.py",
+      "export": "src/model_generator/web/preview_runner.py"
+    },
+    {
+      "source": "src/model_generator/web/process_guard.py",
+      "export": "src/model_generator/web/process_guard.py"
+    },
+    {
+      "source": "src/model_generator/web/progress.py",
+      "export": "src/model_generator/web/progress.py"
+    },
+    {
+      "source": "src/model_generator/web/reporting.py",
+      "export": "src/model_generator/web/reporting.py"
+    },
+    {
+      "source": "src/model_generator/web/s3_store.py",
+      "export": "src/model_generator/web/s3_store.py"
+    },
+    {
+      "source": "src/model_generator/web/security.py",
+      "export": "src/model_generator/web/security.py"
+    },
+    {
+      "source": "src/model_generator/web/static.py",
+      "export": "src/model_generator/web/static.py"
+    },
+    {
+      "source": "src/model_generator/web/store.py",
+      "export": "src/model_generator/web/store.py"
+    },
+    {
+      "source": "src/model_generator/web/upload_chunks.py",
+      "export": "src/model_generator/web/upload_chunks.py"
+    },
+    {
+      "source": "src/model_generator/web/uploads.py",
+      "export": "src/model_generator/web/uploads.py"
+    },
+    {
+      "source": "src/model_generator/web/validation_child.py",
+      "export": "src/model_generator/web/validation_child.py"
+    },
+    {
+      "source": "src/model_generator/web/worker.py",
+      "export": "src/model_generator/web/worker.py"
+    },
+    {
+      "source": "tests/test_ci_web_cleanup.py",
+      "export": "tests/test_ci_web_cleanup.py"
+    },
+    {
+      "source": "tests/web/__init__.py",
+      "export": "tests/web/__init__.py"
+    },
+    {
+      "source": "tests/web/fixtures/controlled_child.py",
+      "export": "tests/web/fixtures/controlled_child.py"
+    },
+    {
+      "source": "tests/web/fixtures/guard_probe.py",
+      "export": "tests/web/fixtures/guard_probe.py"
+    },
+    {
+      "source": "tests/web/fixtures/worker_probe.py",
+      "export": "tests/web/fixtures/worker_probe.py"
+    },
+    {
+      "source": "tests/web/helpers.py",
+      "export": "tests/web/helpers.py"
+    },
+    {
+      "source": "tests/web/test_artifacts.py",
+      "export": "tests/web/test_artifacts.py"
+    },
+    {
+      "source": "tests/web/test_auth.py",
+      "export": "tests/web/test_auth.py"
+    },
+    {
+      "source": "tests/web/test_backup_restore.py",
+      "export": "tests/web/test_backup_restore.py"
+    },
+    {
+      "source": "tests/web/test_blender_runner.py",
+      "export": "tests/web/test_blender_runner.py"
+    },
+    {
+      "source": "tests/web/test_config_api.py",
+      "export": "tests/web/test_config_api.py"
+    },
+    {
+      "source": "tests/web/test_config_db.py",
+      "export": "tests/web/test_config_db.py"
+    },
+    {
+      "source": "tests/web/test_cpu_preview.py",
+      "export": "tests/web/test_cpu_preview.py"
+    },
+    {
+      "source": "tests/web/test_deploy_contract.py",
+      "export": "tests/web/test_deploy_contract.py"
+    },
+    {
+      "source": "tests/web/test_diagnostics_live.py",
+      "export": "tests/web/test_diagnostics_live.py"
+    },
+    {
+      "source": "tests/web/test_guard_linux.py",
+      "export": "tests/web/test_guard_linux.py"
+    },
+    {
+      "source": "tests/web/test_guest.py",
+      "export": "tests/web/test_guest.py"
+    },
+    {
+      "source": "tests/web/test_jobs.py",
+      "export": "tests/web/test_jobs.py"
+    },
+    {
+      "source": "tests/web/test_lifecycle.py",
+      "export": "tests/web/test_lifecycle.py"
+    },
+    {
+      "source": "tests/web/test_pipeline.py",
+      "export": "tests/web/test_pipeline.py"
+    },
+    {
+      "source": "tests/web/test_postgres.py",
+      "export": "tests/web/test_postgres.py"
+    },
+    {
+      "source": "tests/web/test_preview.py",
+      "export": "tests/web/test_preview.py"
+    },
+    {
+      "source": "tests/web/test_reporting.py",
+      "export": "tests/web/test_reporting.py"
+    },
+    {
+      "source": "tests/web/test_s3_store.py",
+      "export": "tests/web/test_s3_store.py"
+    },
+    {
+      "source": "tests/web/test_security.py",
+      "export": "tests/web/test_security.py"
+    },
+    {
+      "source": "tests/web/test_static.py",
+      "export": "tests/web/test_static.py"
+    },
+    {
+      "source": "tests/web/test_store.py",
+      "export": "tests/web/test_store.py"
+    },
+    {
+      "source": "tests/web/test_upload_chunks.py",
+      "export": "tests/web/test_upload_chunks.py"
+    },
+    {
+      "source": "tests/web/test_uploads.py",
+      "export": "tests/web/test_uploads.py"
+    },
+    {
+      "source": "tests/web/test_worker.py",
+      "export": "tests/web/test_worker.py"
+    },
+    {
+      "source": "web/THIRD-PARTY-NOTICES.md",
+      "export": "web/THIRD-PARTY-NOTICES.md"
+    },
+    {
+      "source": "web/THREE-LICENSE.txt",
+      "export": "web/THREE-LICENSE.txt"
+    },
+    {
+      "source": "web/assets/axis-sign.png",
+      "export": "web/assets/axis-sign.png"
+    },
+    {
+      "source": "web/assets/fonts/GEOLOGICA-OFL.txt",
+      "export": "web/assets/fonts/GEOLOGICA-OFL.txt"
+    },
+    {
+      "source": "web/assets/fonts/MANROPE-OFL.txt",
+      "export": "web/assets/fonts/MANROPE-OFL.txt"
+    },
+    {
+      "source": "web/assets/fonts/geologica-cyrillic-700-normal.woff2",
+      "export": "web/assets/fonts/geologica-cyrillic-700-normal.woff2"
+    },
+    {
+      "source": "web/assets/fonts/geologica-cyrillic-800-normal.woff2",
+      "export": "web/assets/fonts/geologica-cyrillic-800-normal.woff2"
+    },
+    {
+      "source": "web/assets/fonts/geologica-latin-700-normal.woff2",
+      "export": "web/assets/fonts/geologica-latin-700-normal.woff2"
+    },
+    {
+      "source": "web/assets/fonts/geologica-latin-800-normal.woff2",
+      "export": "web/assets/fonts/geologica-latin-800-normal.woff2"
+    },
+    {
+      "source": "web/assets/fonts/manrope-cyrillic-wght-normal.woff2",
+      "export": "web/assets/fonts/manrope-cyrillic-wght-normal.woff2"
+    },
+    {
+      "source": "web/assets/fonts/manrope-latin-wght-normal.woff2",
+      "export": "web/assets/fonts/manrope-latin-wght-normal.woff2"
+    },
+    {
+      "source": "web/assets/inventory.json",
+      "export": "web/assets/inventory.json"
+    },
+    {
+      "source": "web/eslint.config.mjs",
+      "export": "web/eslint.config.mjs"
+    },
+    {
+      "source": "web/index.html",
+      "export": "web/index.html"
+    },
+    {
+      "source": "web/package-lock.json",
+      "export": "web/package-lock.json"
+    },
+    {
+      "source": "web/package.json",
+      "export": "web/package.json"
+    },
+    {
+      "source": "web/privacy.html",
+      "export": "web/privacy.html"
+    },
+    {
+      "source": "web/src/api.js",
+      "export": "web/src/api.js"
+    },
+    {
+      "source": "web/src/app.js",
+      "export": "web/src/app.js"
+    },
+    {
+      "source": "web/src/auth.js",
+      "export": "web/src/auth.js"
+    },
+    {
+      "source": "web/src/checks.js",
+      "export": "web/src/checks.js"
+    },
+    {
+      "source": "web/src/hash-worker.js",
+      "export": "web/src/hash-worker.js"
+    },
+    {
+      "source": "web/src/jobs.js",
+      "export": "web/src/jobs.js"
+    },
+    {
+      "source": "web/src/preview.js",
+      "export": "web/src/preview.js"
+    },
+    {
+      "source": "web/src/sha256.js",
+      "export": "web/src/sha256.js"
+    },
+    {
+      "source": "web/src/shell.js",
+      "export": "web/src/shell.js"
+    },
+    {
+      "source": "web/src/upload.js",
+      "export": "web/src/upload.js"
+    },
+    {
+      "source": "web/styles.css",
+      "export": "web/styles.css"
+    },
+    {
+      "source": "web/support.html",
+      "export": "web/support.html"
+    },
+    {
+      "source": "web/tests/api.test.mjs",
+      "export": "web/tests/api.test.mjs"
+    },
+    {
+      "source": "web/tests/api.vitest.mjs",
+      "export": "web/tests/api.vitest.mjs"
+    },
+    {
+      "source": "web/tests/chunks.test.mjs",
+      "export": "web/tests/chunks.test.mjs"
+    },
+    {
+      "source": "web/tests/chunks.vitest.mjs",
+      "export": "web/tests/chunks.vitest.mjs"
+    },
+    {
+      "source": "web/tests/hash.test.mjs",
+      "export": "web/tests/hash.test.mjs"
+    },
+    {
+      "source": "web/tests/hash.vitest.mjs",
+      "export": "web/tests/hash.vitest.mjs"
+    },
+    {
+      "source": "web/tests/lifecycle.test.mjs",
+      "export": "web/tests/lifecycle.test.mjs"
+    },
+    {
+      "source": "web/tests/lifecycle.vitest.mjs",
+      "export": "web/tests/lifecycle.vitest.mjs"
+    },
+    {
+      "source": "web/tests/preview.test.mjs",
+      "export": "web/tests/preview.test.mjs"
+    },
+    {
+      "source": "web/tests/preview.vitest.mjs",
+      "export": "web/tests/preview.vitest.mjs"
+    },
+    {
+      "source": "web/tests/shell.test.mjs",
+      "export": "web/tests/shell.test.mjs"
+    },
+    {
+      "source": "web/tests/shell.vitest.mjs",
+      "export": "web/tests/shell.vitest.mjs"
+    },
+    {
+      "source": "web/tests/ui.test.mjs",
+      "export": "web/tests/ui.test.mjs"
+    },
+    {
+      "source": "web/tests/ui.vitest.mjs",
+      "export": "web/tests/ui.vitest.mjs"
+    },
+    {
+      "source": "web/vitest.config.mjs",
+      "export": "web/vitest.config.mjs"
+    },
+    {
+      "source": "workers/COPYING",
+      "export": "workers/COPYING"
+    },
+    {
+      "source": "workers/LICENSES.md",
+      "export": "workers/LICENSES.md"
+    },
+    {
+      "source": "workers/blender_preview.py",
+      "export": "workers/blender_preview.py"
+    },
+    {
+      "source": "public/web-env.template",
+      "export": "public/web-env.template"
+    },
+    {
+      "source": "public/web-env.template",
+      "export": "deploy/web/.env.example"
+    },
+    {
+      "source": "scripts/ci-web-all.py",
+      "export": "scripts/ci-web-all.py"
+    },
+    {
+      "source": "tests/test_ci_web_all.py",
+      "export": "tests/test_ci_web_all.py"
+    },
+    {
+      "source": "requirements-web.in",
+      "export": "requirements-web.in"
+    },
+    {
+      "source": "tests/web/production_http_proof.py",
+      "export": "tests/web/production_http_proof.py"
+    },
+    {
+      "source": "deploy/web/Dockerfile.ingress",
+      "export": "deploy/web/Dockerfile.ingress"
+    },
+    {
+      "source": "deploy/web/compose.backup.yaml",
+      "export": "deploy/web/compose.backup.yaml"
+    },
+    {
+      "source": "deploy/web/compose.ingress-unix.yaml",
+      "export": "deploy/web/compose.ingress-unix.yaml"
+    },
+    {
+      "source": "deploy/web/ingress-unix.json",
+      "export": "deploy/web/ingress-unix.json"
+    },
+    {
+      "source": "deploy/web/model-generator-backup.service",
+      "export": "deploy/web/model-generator-backup.service"
+    },
+    {
+      "source": "deploy/web/model-generator-backup.timer",
+      "export": "deploy/web/model-generator-backup.timer"
+    },
+    {
+      "source": "tests/web/production_active_restore_proof.py",
+      "export": "tests/web/production_active_restore_proof.py"
+    },
+    {
+      "source": "scripts/release.sh",
+      "export": "scripts/release.sh"
+    },
+    {
+      "source": "scripts/release-web.py",
+      "export": "scripts/release-web.py"
+    },
+    {
+      "source": "tests/release/test_release_gate.py",
+      "export": "tests/release/test_release_gate.py"
+    },
+    {
+      "source": "deploy/web/Dockerfile.scratch-keeper",
+      "export": "deploy/web/Dockerfile.scratch-keeper"
+    },
+    {
+      "source": "tests/web/test_fixture_lifecycle.py",
+      "export": "tests/web/test_fixture_lifecycle.py"
+    },
+    {
+      "source": "tests/release/test_deploy_failure_diagnostics.py",
+      "export": "tests/release/test_deploy_failure_diagnostics.py"
+    },
+    {
+      "source": "scripts/cold-recovery-web.py",
+      "export": "scripts/cold-recovery-web.py"
+    },
+    {
+      "source": "tests/release/test_cold_operator.py",
+      "export": "tests/release/test_cold_operator.py"
+    },
+    {
+      "source": "scripts/ci-web-cold-recovery.py",
+      "export": "scripts/ci-web-cold-recovery.py"
+    },
+    {
+      "source": "tests/fixtures/cold_recovery_crash.py",
+      "export": "tests/fixtures/cold_recovery_crash.py"
+    },
+    {
+      "source": "tests/fixtures/cold_recovery_http.py",
+      "export": "tests/fixtures/cold_recovery_http.py"
+    },
+    {
+      "source": "tests/release/test_cold_proof_fixture.py",
+      "export": "tests/release/test_cold_proof_fixture.py"
+    },
+    {
+      "source": "src/model_generator/web/lock_identity.py",
+      "export": "src/model_generator/web/lock_identity.py"
+    },
+    {
+      "source": "src/model_generator/web/migrations/008-api-lock-generation.sql",
+      "export": "src/model_generator/web/migrations/008-api-lock-generation.sql"
+    },
+    {
+      "source": "tests/web/test_lock_identity.py",
+      "export": "tests/web/test_lock_identity.py"
+    },
+    {
+      "source": "scripts/legacy-recovery-web.py",
+      "export": "scripts/legacy-recovery-web.py"
+    },
+    {
+      "source": "tests/release/test_legacy_operator.py",
+      "export": "tests/release/test_legacy_operator.py"
+    },
+    {
+      "source": "web/favicon.ico",
+      "export": "web/favicon.ico"
+    },
+    {
+      "source": "web/robots.txt",
+      "export": "web/robots.txt"
+    },
+    {
+      "source": "web/src/analytics.js",
+      "export": "web/src/analytics.js"
+    },
+    {
+      "source": "web/tests/analytics.test.mjs",
+      "export": "web/tests/analytics.test.mjs"
+    },
+    {
+      "source": "web/tests/analytics.vitest.mjs",
+      "export": "web/tests/analytics.vitest.mjs"
+    },
+    {
+      "source": "web/tests/support/analytics-cases.mjs",
+      "export": "web/tests/support/analytics-cases.mjs"
+    },
+    {
+      "source": "scripts/build-sitemap.mjs",
+      "export": "scripts/build-sitemap.mjs"
     }
   ]
 }

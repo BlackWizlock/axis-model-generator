@@ -1,0 +1,6 @@
+fastapi==0.142.2
+uvicorn==0.54.0
+psycopg[binary]==3.3.6
+boto3==1.43.108
+numpy==2.5.3
+Pillow==12.3.0

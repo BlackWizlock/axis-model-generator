@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily private Model Generator database backup
+[Timer]
+OnCalendar=*-*-* 03:15:00 Europe/Moscow
+Persistent=true
+Unit=model-generator-backup.service
+[Install]
+WantedBy=timers.target

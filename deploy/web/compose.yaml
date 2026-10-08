@@ -1,0 +1,150 @@
+name: model-generator
+x-hardening: &hardening
+  init: true
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 64
+x-environment: &environment
+  MG_PUBLIC_ORIGIN: ${MG_PUBLIC_ORIGIN:?}
+  MG_SOURCE_URL: https://github.com/BlackWizlock/axis-model-generator
+  MG_DATABASE_URL_FILE: /run/secrets/database
+  MG_DATA_ROOT: /scratch
+  MG_JOURNAL_ROOT: /journal
+  MG_S3_ENDPOINT: https://storage.yandexcloud.net
+  MG_S3_REGION: ${MG_S3_REGION:?}
+  MG_S3_BUCKET: ${MG_S3_BUCKET:?}
+  MG_S3_PROXY_URL: http://s3-proxy:8080
+  MG_S3_ACCESS_KEY_FILE: /run/secrets/s3_access
+  MG_S3_SECRET_KEY_FILE: /run/secrets/s3_secret
+services:
+  scratch-keeper:
+    <<: *hardening
+    image: ${MG_KEEPER_IMAGE:?}
+    user: 10001:10001
+    cpus: 0.05
+    mem_limit: 64m
+    pids_limit: 8
+    network_mode: none
+    volumes: [api_scratch:/scratch/api:ro, worker_scratch:/scratch/worker:ro]
+  api:
+    <<: *hardening
+    image: ${MG_API_IMAGE:?}
+    user: 10001:10001
+    cpus: 1
+    mem_limit: 512m
+    environment:
+      <<: *environment
+      MG_AUTH_KEY_FILE: /run/secrets/auth_key
+      MG_TRUSTED_PROXY_IPS: ${MG_TRUSTED_PROXY_IPS:?}
+    secrets:
+      - source: api_dsn
+        target: database
+      - auth_key
+      - s3_access
+      - s3_secret
+    volumes: [api_scratch:/scratch, api_journal:/journal]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001"]
+    networks: [mg_edge, mg_db, mg_files]
+    healthcheck:
+      test: [CMD, python, scripts/web-healthcheck.py, --url, 'http://localhost:8000/health/live']
+      interval: 10s
+      timeout: 4s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+  worker:
+    <<: *hardening
+    image: ${MG_WORKER_IMAGE:?}
+    user: 10001:10001
+    cpus: 1
+    mem_limit: 2048m
+    environment:
+      <<: *environment
+      MG_DATABASE_ROLE: mg_worker
+    secrets:
+      - source: worker_dsn
+        target: database
+      - s3_access
+      - s3_secret
+    volumes: [worker_scratch:/scratch, worker_journal:/journal]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001"]
+    networks: [mg_db, mg_files]
+    healthcheck:
+      test: [CMD, python, scripts/web-worker-healthcheck.py]
+      interval: 10s
+      timeout: 4s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    <<: *hardening
+    image: postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    user: postgres
+    cpus: 0.5
+    mem_limit: 512m
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/admin
+    command: [postgres, -c, max_connections=32, -c, fsync=on, -c, synchronous_commit=on]
+    secrets: [admin, api, worker, migrator, backup]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/001-init.sh:ro
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m", "/var/run/postgresql:rw,nosuid,size=16m,uid=999,gid=999"]
+    networks: [mg_db]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d model_generator && psql -U postgres -d model_generator -tAc \"SELECT 1 FROM pg_namespace WHERE nspname = 'mg'\" | grep -qx 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  s3-proxy:
+    <<: *hardening
+    image: ${MG_PROXY_IMAGE:?}
+    user: 10001:10001
+    cpus: 0.25
+    mem_limit: 128m
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001"]
+    networks: [mg_files, mg_egress]
+networks:
+  mg_edge:
+    internal: true
+  mg_db:
+    internal: true
+  mg_files:
+    internal: true
+  mg_egress: {}
+volumes:
+  pgdata: {}
+  api_scratch: &scratch
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=4294967296,uid=10001,gid=10001,mode=0700
+  worker_scratch: *scratch
+  api_journal: {}
+  worker_journal: {}
+secrets:
+  backup:
+    file: ${MG_SECRET_ROOT:?}/backup
+  admin:
+    file: ${MG_SECRET_ROOT:?}/admin
+  api:
+    file: ${MG_SECRET_ROOT:?}/api
+  worker:
+    file: ${MG_SECRET_ROOT:?}/worker
+  migrator:
+    file: ${MG_SECRET_ROOT:?}/migrator
+  api_dsn:
+    file: ${MG_SECRET_ROOT:?}/api_dsn
+  worker_dsn:
+    file: ${MG_SECRET_ROOT:?}/worker_dsn
+  auth_key:
+    file: ${MG_SECRET_ROOT:?}/auth_key
+  s3_access:
+    file: ${MG_SECRET_ROOT:?}/s3_access
+  s3_secret:
+    file: ${MG_SECRET_ROOT:?}/s3_secret

@@ -20,7 +20,7 @@ DENIED_PARTS = {".git", ".claude", ".codex", ".agents", ".worktrees", "_input",
                 "__pycache__", ".venv"}
 DENIED_NAMES = {"agents.md", "claude.md", "test_sample.py", ".mcp.json", MANIFEST}
 DENIED_SUFFIXES = {".rvt", ".rfa", ".fbx", ".ifc", ".blend", ".pdf", ".zip", ".pem",
-                   ".key", ".p12", ".pfx", ".pyc", ".png", ".jpg"}
+                   ".key", ".p12", ".pfx", ".pyc", ".png", ".jpg", ".ico"}
 EMAIL = re.compile(r"[A-Za-z0-9_.+%-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 HOME_PATH = re.compile(r"(?:/(?:Users|home)/[A-Za-z0-9_.-]+(?:/|\b)|"
                        r"[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][A-Za-z0-9_.-]+)", re.I)
@@ -29,6 +29,12 @@ TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,
                    r"AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9_-]{20,})\b")
 ASSIGNMENT = re.compile(r"\b(?:password|secret|token|api[_-]?key|access[_-]?key)\b"
                         r"\s*[=:]\s*[\"']?([A-Za-z0-9_+/=-]{20,})", re.I)
+
+
+PUBLIC_CONTACT_PATHS={'scripts/export-public.py','web/index.html','web/privacy.html','web/support.html','tests/web/test_static.py','web/tests/support/analytics-cases.mjs'}
+PUBLIC_CONTACT='info@axisconsult.ru'
+
+PUBLIC_ASSETS = {'web/favicon.ico': (10635, '6879e820d351f2bc765eba1eb560e74f0235500be18e54cf7b29313a2e6cc553'), 'web/assets/axis-sign.png': (68273, '7d845af40aea19f8ff48ee35c3d06ccbe74a7802ca66c37f85d18d7a9ec61729'), 'web/assets/fonts/manrope-latin-wght-normal.woff2': (24836, 'a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972'), 'web/assets/fonts/manrope-cyrillic-wght-normal.woff2': (14500, 'c268b459a9329e59fecf39a17618efd44c71735532048d60b12aab76a8c14914'), 'web/assets/fonts/geologica-latin-700-normal.woff2': (14412, '7f7f79c5a8bcfdae1dffc5b90dc49fd145951a50e2fecb92f97b93be6c7d5bfa'), 'web/assets/fonts/geologica-cyrillic-700-normal.woff2': (9164, '646d6acf1b000c0c63d36bcebd7a14379220bf559ed9152c58eb89ee2a12b13a'), 'web/assets/fonts/geologica-latin-800-normal.woff2': (14464, '482d9d7848a9bf11d7a6a7e0ef2e2a2cc833253f8cf43ca2738ef438441561f3'), 'web/assets/fonts/geologica-cyrillic-800-normal.woff2': (9120, '94eebb38e423bfd55b111a58753493a38c79a873f73b8c5cf5babdbf67e7500b')}
 
 
 class ExportError(ValueError):
@@ -65,7 +71,7 @@ def _permitted(path, source=False):
         raise ExportError("inventory.denied: forbidden source category")
     if any(p.startswith(".env") and p != ".env.example" for p in lower):
         raise ExportError("inventory.denied: environment file")
-    if PurePosixPath(name).suffix in DENIED_SUFFIXES:
+    if PurePosixPath(name).suffix in DENIED_SUFFIXES and path not in PUBLIC_ASSETS:
         raise ExportError("inventory.denied: private or binary resource")
     if source and (path == "README.md" or (parts[0] == "docs" and parts[:2] != ("docs", "public"))):
         raise ExportError("inventory.denied: private documentation")
@@ -122,6 +128,11 @@ def _policy(repo, path, output):
 
 
 def _scan(data, path, deny_tokens):
+    if path in PUBLIC_ASSETS:
+        size,sha256=PUBLIC_ASSETS[path]
+        if len(data)!=size or hashlib.sha256(data).hexdigest()!=sha256:
+            raise ExportError('content.public_asset: reviewed binary checksum mismatch')
+        return
     try:
         text = data.decode("utf-8")
     except UnicodeError:
@@ -134,6 +145,7 @@ def _scan(data, path, deny_tokens):
         if pattern.search(text):
             raise ExportError("content." + rule + ": sensitive content")
     for match in EMAIL.finditer(text):
+        if match.group().casefold()==PUBLIC_CONTACT and path in PUBLIC_CONTACT_PATHS:continue
         domain = match.group().rsplit("@", 1)[1].casefold()
         if not (domain == "example.invalid" or domain.endswith(".invalid") or
                 domain in {"users.noreply.github.com", "noreply.github.com"}):
@@ -184,6 +196,7 @@ def build_export(repo_root: Path, output: Path, revision: str,
             not isinstance(inventory.get("files"), list) or not inventory["files"]):
         raise ExportError("inventory.schema: expected schema 1 with explicit files")
     payloads = {}
+    modes = {}
     targets = set()
     for entry in inventory["files"]:
         if not isinstance(entry, dict) or set(entry) != {"source", "export"}:
@@ -201,6 +214,7 @@ def build_export(repo_root: Path, output: Path, revision: str,
         _scan(data, source, deny_tokens)
         _scan(data, target, deny_tokens)
         payloads[target] = data
+        modes[target]=int(_git(repo,"ls-tree",commit,"--",source).split()[0][-3:],8)
     files = [{"path": path, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
              for path, data in sorted(payloads.items())]
     manifest = {"schema_version": 1, "source_revision": commit,
@@ -215,12 +229,13 @@ def build_export(repo_root: Path, output: Path, revision: str,
             destination = staged / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
+            destination.chmod(modes.get(path,0o644))
         staged_archive = Path(staging) / "snapshot.zip"
         with zipfile.ZipFile(staged_archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path, data in sorted(payloads.items()):
                 info = zipfile.ZipInfo(path, (1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = 0o100644 << 16
+                info.external_attr = (0o100000 | modes.get(path,0o644)) << 16
                 bundle.writestr(info, data)
         if output.exists():
             output.rmdir()

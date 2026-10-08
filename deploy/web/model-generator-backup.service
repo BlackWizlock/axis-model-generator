@@ -1,0 +1,7 @@
+[Unit]
+Description=Private Model Generator database backup
+[Service]
+Type=oneshot
+WorkingDirectory=%h/model-generator-mvp
+ExecStart=/usr/bin/docker compose --env-file production.env -p model-generator-mvp -f compose.yaml -f compose.ingress-unix.yaml -f compose.backup.yaml -f networks.yaml run --rm backup
+TimeoutStartSec=900
