@@ -858,6 +858,10 @@
       "export": "tests/web/test_fixture_lifecycle.py"
     },
     {
+      "source": "tests/test_verify_web_deploy.py",
+      "export": "tests/test_verify_web_deploy.py"
+    },
+    {
       "source": "tests/release/test_deploy_failure_diagnostics.py",
       "export": "tests/release/test_deploy_failure_diagnostics.py"
     },
