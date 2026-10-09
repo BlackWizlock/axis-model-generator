@@ -86,6 +86,10 @@ export async function bindAnalyticsChoice(analytics, windowRef, documentRef) {
   const decline = documentRef.getElementById('analytics-decline');
   const revoke = documentRef.getElementById('analytics-revoke');
   if (!status || !allow || !decline || !revoke) return;
+  const panel = documentRef.getElementById('analytics-panel');
+  const settings = documentRef.getElementById('analytics-settings');
+  const close = documentRef.getElementById('analytics-close');
+  const open = visible => {if (panel) panel.hidden = !visible;};
   const saved = () => {try {return JSON.parse(storage?.getItem(CONSENT_KEY) || 'null');} catch {return null;}};
   const unchanged = (record, current) => current === decision && JSON.stringify(saved()) === JSON.stringify(record);
   const persist = record => {try {const text = JSON.stringify(record);storage?.setItem(CONSENT_KEY,text);return storage?.getItem(CONSENT_KEY) === text;} catch {return false;}};
@@ -94,6 +98,8 @@ export async function bindAnalyticsChoice(analytics, windowRef, documentRef) {
       allowed === false ? 'Аналитика выключена. Загрузка и проверка пакетов доступны.' :
       'Разрешить необязательную аналитику посещений и действий? Без согласия счётчик не загружается.';
     allow.hidden = allowed === true; decline.hidden = allowed !== null; revoke.hidden = allowed !== true;
+    if (settings) settings.hidden = allowed === true;
+    if (close) close.hidden = allowed !== false;
   };
   const request = async body => {
     const controller = new AbortController();
@@ -133,29 +139,31 @@ export async function bindAnalyticsChoice(analytics, windowRef, documentRef) {
       if (!persist({version:1,allowed:true,at:Date.now(),receipt:confirmed.receipt,expiresAt:confirmed.expiresAt})) {
         await request({action:'withdraw',receipt:confirmed.receipt});throw new Error('Choice storage unavailable');
       }
-      activate(confirmed, confirmed.receipt);
-    } catch {if (current === decision) {show(false);status.textContent = 'Не удалось подтвердить согласие. Аналитика выключена; загрузка и проверка работают.';}}
+      activate(confirmed, confirmed.receipt); open(false);
+    } catch {if (current === decision) {show(false);open(true);status.textContent = 'Не удалось подтвердить согласие. Аналитика выключена; загрузка и проверка работают.';}}
     finally {allow.disabled = false;}
   });
   const withdrawChoice = async () => {
     const current = ++decision;show(false);
     const record = saved();
     const receipt = record?.pendingWithdrawal || record?.receipt || memoryReceipt;
-    if (!receipt) {persist({version:1,allowed:false,at:Date.now()});return;}
+    if (!receipt) {persist({version:1,allowed:false,at:Date.now()});open(false);return;}
     analytics.stop();allow.disabled = true;
     const stored = persist({version:1,allowed:false,at:Date.now(),pendingWithdrawal:receipt});
     const expected = saved();
     try {if (receipt) await request({action:'withdraw',receipt});if (!unchanged(expected,current)) return;memoryReceipt = null;persist({version:1,allowed:false,at:Date.now()});}
-    catch {if (!unchanged(expected,current)) return;if (!stored) {memoryReceipt = receipt;allow.hidden = true;revoke.hidden = false;status.textContent = 'Аналитика остановлена. Не удалось сохранить отзыв: повторите отзыв на этой странице.';return;}}
+    catch {if (!unchanged(expected,current)) return;if (!stored) {memoryReceipt = receipt;allow.hidden = true;revoke.hidden = false;open(true);status.textContent = 'Аналитика остановлена. Не удалось сохранить отзыв: повторите отзыв на этой странице.';return;}}
     windowRef.location.reload();
   };
   decline.addEventListener('click', withdrawChoice);
   revoke.addEventListener('click', withdrawChoice);
+  settings?.addEventListener('click', () => {open(true); panel?.focus?.();});
+  close?.addEventListener('click', () => {open(false); settings?.focus?.();});
   windowRef.addEventListener?.('storage', event => {
     if (event.key === CONSENT_KEY) {decision++;analytics.stop(); windowRef.location.reload();}
   });
   const choice = readAnalyticsChoice(storage), record = saved(), current = decision;
-  show(choice === true ? null : choice);
+  show(choice === true ? null : choice); open(choice === null);
   try {
     if (/^[a-f0-9]{64}$/.test(record?.pendingWithdrawal)) {await request({action:'withdraw',receipt:record.pendingWithdrawal});if (!unchanged(record,current)) return;persist({version:1,allowed:false,at:Date.now()});}
     if (choice === true) {
@@ -164,7 +172,7 @@ export async function bindAnalyticsChoice(analytics, windowRef, documentRef) {
       if (confirmed.allowed === true) activate(confirmed, record.receipt);
       else {persist({version:1,allowed:false,at:Date.now()});show(false);}
     }
-  } catch {if (current === decision) {show(false);status.textContent = 'Подтверждение аналитики недоступно. Проверка пакетов работает без неё.';}}
+  } catch {if (current === decision) {show(false);open(choice === true);status.textContent = 'Подтверждение аналитики недоступно. Проверка пакетов работает без неё.';}}
 }
 export function setupAnalytics(windowRef = globalThis.window, documentRef = globalThis.document) {
   if (client) return;
