@@ -26,7 +26,7 @@ export function elementIdentity(key) {
   const uniqueId = typeof key.unique_id === 'string' ? key.unique_id : 'не указан';
   const links = Array.isArray(key.link_instance_path) && key.link_instance_path.every(value => typeof value === 'string') ? key.link_instance_path : null;
   let linkPath = 'не подтверждён';
-  if (links) linkPath = links.length ? links.join(' → ') : 'корневая модель';
+  if (links) linkPath = links.length ? links.join(' / ') : 'корневая модель';
   return `Документ: ${documentId}. Элемент (UniqueId): ${uniqueId}. Путь экземпляров связей: ${linkPath}.`;
 }
 function scalarEvidence(value) {

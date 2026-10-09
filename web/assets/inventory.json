@@ -8,6 +8,12 @@
       "source": "public/axis-sign.png"
     },
     {
+      "path": "max-icon.png",
+      "sha256": "2ea648ec1fbcb7911f6c89f05349c0a43ea93d44f21aaa2b8b5937135ab08829",
+      "bytes": 6113,
+      "source": "Axis Sites public asset src/assets/max-icon.png, resized to 64 px; MAX messenger mark, used only as a contact link label"
+    },
+    {
       "path": "fonts/manrope-latin-wght-normal.woff2",
       "sha256": "a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972",
       "bytes": 24836,
@@ -54,6 +60,24 @@
       "sha256": "94eebb38e423bfd55b111a58753493a38c79a873f73b8c5cf5babdbf67e7500b",
       "bytes": 9120,
       "source": "node_modules/@fontsource/geologica/files/geologica-cyrillic-800-normal.woff2"
+    },
+    {
+      "path": "revit-model.svg",
+      "sha256": "4be32368674b92a457b33c64e7e2bdd8faf9008516872c1d650d76ed5714eb75",
+      "bytes": 12790,
+      "source": "Original Axis Model schematic, 2026-10-09; synthetic illustrative object, not a client model or generated output"
+    },
+    {
+      "path": "dwg-plan.svg",
+      "sha256": "0bc0349b0e197aadfd0af5c2767af84a1bd688311fe8519672b58cd18568728f",
+      "bytes": 3145,
+      "source": "Original Axis Model schematic, 2026-10-09; synthetic illustrative object, not a client model or generated output"
+    },
+    {
+      "path": "npm-result.svg",
+      "sha256": "a6b59f1e3ae67e637ff8754cc931bab01216adc755ef58db0558687d31b65cfa",
+      "bytes": 6860,
+      "source": "Original Axis Model schematic, 2026-10-09; synthetic illustrative object, not a client model or generated output"
     }
   ]
 }

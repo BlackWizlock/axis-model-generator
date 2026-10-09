@@ -602,6 +602,10 @@
       "export": "web/assets/axis-sign.png"
     },
     {
+      "source": "web/assets/max-icon.png",
+      "export": "web/assets/max-icon.png"
+    },
+    {
       "source": "web/assets/fonts/GEOLOGICA-OFL.txt",
       "export": "web/assets/fonts/GEOLOGICA-OFL.txt"
     },
@@ -972,6 +976,22 @@
     {
       "source": "tests/web/test_validation_child.py",
       "export": "tests/web/test_validation_child.py"
+    },
+    {
+      "source": "web/assets/revit-model.svg",
+      "export": "web/assets/revit-model.svg"
+    },
+    {
+      "source": "web/assets/dwg-plan.svg",
+      "export": "web/assets/dwg-plan.svg"
+    },
+    {
+      "source": "web/assets/npm-result.svg",
+      "export": "web/assets/npm-result.svg"
+    },
+    {
+      "source": "tests/web/test_static_illustrations.py",
+      "export": "tests/web/test_static_illustrations.py"
     }
   ]
 }

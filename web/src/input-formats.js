@@ -22,13 +22,9 @@ export function acceptsFile(file, kind, rows) {
   const row = uploadRows(rows).find(item => item.id === kind);
   return !!row && row.extensions.some(extension => file.name.toLowerCase().endsWith(extension));
 }
-export function unavailableFormatText(row) {
-  const label = row.id.toUpperCase();
-  if (row.reason === 'engine_unavailable') return `Обработка ${label} пока недоступна: серверный движок не подключён`;
-  return `Обработка ${label} пока недоступна${row.reason ? `: ${row.reason}` : ''}`;
+export function unavailableFormatText() {
+  return 'Выберите ZIP с FBX или переносимый пакет v1.';
 }
-export function rejectedFileText(file, rows) {
-  const name = typeof file?.name === 'string' ? file.name.toLowerCase() : '';
-  const row = Array.isArray(rows) ? rows.find(item => validRow(item) && item.upload === false && item.extensions.some(extension => name.endsWith(extension))) : null;
-  return row ? unavailableFormatText(row) : 'Этот формат пока не поддерживается. Выберите доступный формат и его тип.';
+export function rejectedFileText() {
+  return unavailableFormatText();
 }

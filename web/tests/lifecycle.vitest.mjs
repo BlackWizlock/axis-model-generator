@@ -52,7 +52,7 @@ test('failed check detail fetch retries when reopened and caches successful deta
 test('interrupted upload retains last server acknowledgement until next attempt',async()=>{
  const app=await appHarness({uploadFile:async(file,kind,csrf,progress)=>{progress({phase:'ack',done:5,total:10,acknowledged:5});throw new Error('offline');}});
  app.get('input-file').files=[{name:'model.zip',size:10}];await app.get('upload-form').events.submit({preventDefault(){}});
- assert.match(app.get('upload-message').textContent,/Повторно выберите тот же файл/);assert.match(app.get('upload-heartbeat').textContent,/последний ответ сервера/);assert.match(app.get('upload-heartbeat').textContent,/с назад/);
+ assert.match(app.get('upload-message').textContent,/Повторно выберите тот же файл/);assert.match(app.get('upload-heartbeat').textContent,/последнее обновление/);assert.match(app.get('upload-heartbeat').textContent,/с назад/);
 });
 
 test('BFCache reopens the selected private job without duplicating initial polling',async()=>{
@@ -62,12 +62,13 @@ test('BFCache reopens the selected private job without duplicating initial polli
  app.events.pagehide();await app.events.pageshow({persisted:true});assert.equal(reads,2);assert.equal(app.pollers.length,2);assert.equal(app.get('report-panel').hidden,false);assert.match(app.get('preview-provenance').textContent,/ПРИВАТНЫЙ ПАКЕТ/);
 });
 
-test('capabilities populate accept, explain native engine and block forced RVT submit and drop',async()=>{
+test('capabilities show only accepted inputs and block forced RVT submit and drop',async()=>{
  let uploads=0,jobs=0;
  const app=await appHarness({uploadFile:async()=>{uploads++;},createJob:async()=>{jobs++;}});
  assert.equal(app.get('input-file').getAttribute('accept'),'.zip');assert.equal(app.get('input-file').disabled,false);
  assert.equal(app.get('input-kind').children.length,2);
- assert.match(app.get('input-format-reasons').children[0].textContent,/Обработка RVT пока недоступна: серверный движок не подключён/);
+ assert.equal(app.get('input-format-reasons').children.length,0);
+ assert.doesNotMatch(app.get('service-message').textContent,/движок|IFC|ВПМ|недоступна|исследовательск/i);
  app.get('upload-zone').events.drop({preventDefault(){},dataTransfer:{files:[{name:'MODEL.RVT',size:10}]}});
  assert.equal(app.get('upload-submit').disabled,true);
  await app.get('upload-form').events.submit({preventDefault(){}});

@@ -5,7 +5,7 @@ import {canPoll, statusText} from '../src/jobs.js';
 import {uploadFile} from '../src/upload.js';
 test('semantic credits, forms, self-hosted scripts, no inline handlers', async()=>{
  const html=await readFile(new URL('../index.html',import.meta.url),'utf8'); const css=await readFile(new URL('../styles.css',import.meta.url),'utf8');
- assert.match(html,/<main/);assert.match(html,/<footer/);assert.match(html,/Разработано <a[^>]+>Axis Consult<\/a> · <a[^>]+>Axis Platform<\/a>/);
+ assert.match(html,/<main/);assert.match(html,/<footer/);assert.match(html,/Разработано <a[^>]+>Аксис <span class=\"text-gradient-teal\">Консалт<\/span><\/a> · <a[^>]+>Аксис <span class=\"text-gradient-teal\">Платформа<\/span><\/a>/);assert.doesNotMatch(html,/Axis (?:Consult|Platform)|[—→←↗]/);
  for(const url of ['https://axisconsult.ru','https://axisplatform.ru']) assert.ok(html.includes(`href="${url}" target="_blank" rel="noopener noreferrer"`));
  assert.match(css,/:focus-visible/);assert.doesNotMatch(html,/\son\w+=|<script[^>]+https?:|<style/);assert.doesNotMatch(html,/type="password"|id="auth-form"|id="username"/);
  assert.match(html,/id="workspace"/);assert.match(html,/label for="input-file"/);
@@ -62,7 +62,7 @@ test('phase findings foreground trusted Russian repair and readable element iden
   const container=new Element('div');renderChecks(container,envelope,()=>true);const row=container.children.at(-1);await row.children[0].events.click();const detail=row.children[1],findingNode=detail.children.find(item=>item.className==='finding');
   assert.ok(findingNode,'Each finding has its own repair block');
   const foreground=findingNode.children.filter(item=>item.tagName!=='details').map(item=>item.textContent).join(' ');
-  for(const text of ['Нормали пакета','Нормали не переданы.','Добавьте нормали в экспорт.','root','synthetic-element','link-a → link-b'])assert.ok(foreground.includes(text),text);
+  for(const text of ['Нормали пакета','Нормали не переданы.','Добавьте нормали в экспорт.','root','synthetic-element','link-a / link-b'])assert.ok(foreground.includes(text),text);
   assert.doesNotMatch(foreground,/\[object Object\]|Instance mesh|unsafe/);
   const technical=findingNode.children.find(item=>item.tagName==='details');assert.ok(technical);assert.equal(technical.attributes.open,undefined);assert.ok(technical.children.some(item=>item.textContent.includes('Instance mesh')));assert.ok(technical.children.some(item=>item.textContent.includes('<script>unsafe</script>')));
   finding.ruleId='package.unsupported';finding.title='Версия пакета';finding.observed={value:2};finding.expected={value:1};envelope.checks[0]={id:finding.ruleId,title:finding.title,state:'failed'};
@@ -104,7 +104,7 @@ test('server matrix blocks RVT and malformed config before hash or any POST/job'
  globalThis.Worker=class{constructor(){hashes++;}};globalThis.fetch=async()=>{requests++;throw new Error('unexpected request');};
  const rows=[{id:'rvt',extensions:['.rvt'],upload:false,diagnostics:false,preview:false,generation:false,reason:'engine_unavailable'}];
  try{
-  await assert.rejects(uploadFile({name:'MODEL.RVT',size:10},'rvt','csrf',()=>{},new AbortController().signal,{inputFormats:rows}),error=>error.message==='Обработка RVT пока недоступна: серверный движок не подключён');
+  await assert.rejects(uploadFile({name:'MODEL.RVT',size:10},'rvt','csrf',()=>{},new AbortController().signal,{inputFormats:rows}),error=>error.message==='Выберите ZIP с FBX или переносимый пакет v1.');
   await assert.rejects(uploadFile({name:'MODEL.ZIP',size:10},'zip-fbx','csrf',()=>{},new AbortController().signal,{inputFormats:null}));
   await assert.rejects(uploadFile({name:'MODEL.FBX',size:10},'fbx','csrf',()=>{},new AbortController().signal));
   assert.equal(hashes,0);assert.equal(requests,0);assert.equal(UPLOAD_CAP,256*1024*1024);assert.equal(CHUNK_BYTES,8*1024*1024);
