@@ -197,7 +197,7 @@ nav{display:none}
 .wordmark img{width:21px;height:21px}
 .header-actions{gap:9px}
 .header-actions .button{padding:9px 13px}
-.hero-inner{grid-template-columns:1fr;padding-block:45px;gap:34px}
+.hero-inner{grid-template-columns:minmax(0,1fr);padding-block:45px;gap:34px}
 .hero h1{font-size:var(--text-section)}
 .hero-copy{max-width:540px}
 .hero-badges{margin-bottom:22px}
@@ -361,5 +361,9 @@ nav{display:none}
 @media(min-width:761px) and (max-width:1000px){.page-section>.section-heading h2{font-size:40px}}
 .example-card .eyebrow{letter-spacing:.18em}
 .legal-page{padding-block:80px 96px;font-size:16px}.legal-page p{color:var(--muted-foreground);overflow-wrap:anywhere}@media(min-width:761px){.legal-page h1{font-size:48px;line-height:1.1}}.legal-page>a:first-child{display:inline-flex;align-items:center;min-height:40px;color:var(--muted-foreground);text-decoration:none}.legal-page>a:first-child:hover{color:var(--foreground)}.legal-page p a,.service-notice a{color:var(--primary)}
-section.service-notice{padding-block:32px;border-top:1px solid var(--border);margin-bottom:0}.service-notice h2{font-size:var(--text-title);color:var(--foreground);margin-bottom:8px}.service-notice p+p{margin-top:8px}
+.consent-panel{position:fixed;left:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:60;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-card);box-shadow:0 12px 30px hsl(215 17% 4% / .16);font-size:var(--text-small);color:var(--muted-foreground)}.consent-panel h2{font-size:var(--text-title);color:var(--foreground);margin-bottom:8px}.consent-panel p+p{margin-top:8px}.consent-panel:focus{outline:none}.consent-panel .form-actions{margin-top:16px}
+.footer-action{background:none;border:0;min-height:40px;margin-right:20px;padding:10px 0;font-family:var(--font-sans);font-size:var(--text-body);font-weight:500;line-height:inherit;color:inherit;cursor:pointer}.footer-action:hover{color:var(--primary)}
+@keyframes consent-in{from{opacity:0;transform:translateY(12px)}}@media(prefers-reduced-motion:no-preference){.consent-panel{animation:consent-in .2s ease-out}}
+@media(max-width:520px){.consent-panel{padding:16px}.consent-panel .form-actions{gap:8px;margin-top:12px}.consent-panel .form-actions .button{flex:1 1 100%}}
+@media(max-width:420px){.hero h1{font-size:clamp(24px,7.6vw,32px)}}
 .footer-messenger{display:inline-flex;align-items:center;gap:8px}.footer-messenger img{width:16px;height:16px;border-radius:4px}

@@ -196,4 +196,35 @@ export function analyticsCases(test) {
     assert.equal(actions[1].action,'withdraw');assert.equal(actions[1].receipt,'b'.repeat(64));assert.equal(Boolean(client.goal('demo_opened')),false);assert.equal(JSON.parse(raw).allowed,false);
   });
 
+  test('floating panel asks once, closes after a choice and reopens from the footer', async () => {
+    const {createAnalytics,bindAnalyticsChoice}=await import('../../src/analytics.js');
+    const ids=['analytics-status','analytics-allow','analytics-decline','analytics-revoke','analytics-panel','analytics-settings','analytics-close'];
+    const mount=()=>{const nodes={},focused=[];for(const id of ids)nodes[id]={hidden:true,addEventListener:(type,fn)=>{nodes[id].click=fn;},focus:()=>focused.push(id)};return {nodes,focused};};
+    let raw=null,reloads=0,granted=true;
+    const boot=async()=>{
+      const env=environment(),page=mount();env.doc.getElementById=id=>page.nodes[id];env.win.crypto=globalThis.crypto;
+      env.win.localStorage={getItem:()=>raw,setItem:(key,value)=>{raw=value;}};env.win.location.reload=()=>{reloads++;};
+      env.win.fetch=async(path,options)=>{
+        if(path==='/analytics-consent')return{ok:granted,text:async()=>'<!-- analytics-consent-document-v1:start -->Consent<!-- analytics-consent-document-v1:end -->'};
+        const body=JSON.parse(options.body);return{ok:true,json:async()=>body.action==='withdraw'?{allowed:false}:{allowed:true,receipt:'a'.repeat(64),expiresAt:Math.floor(Date.now()/1000)+60}};
+      };
+      await bindAnalyticsChoice(createAnalytics(env.win,env.doc),env.win,env.doc);return {...page,env};
+    };
+    let page=await boot();
+    assert.equal(page.nodes['analytics-panel'].hidden,false);assert.equal(page.nodes['analytics-decline'].hidden,false);assert.equal(page.nodes['analytics-close'].hidden,true);
+    await page.nodes['analytics-decline'].click();
+    assert.equal(page.nodes['analytics-panel'].hidden,true);assert.equal(page.nodes['analytics-settings'].hidden,false);assert.equal(page.env.scripts.length,0);
+    page=await boot();assert.equal(page.nodes['analytics-panel'].hidden,true);
+    page.nodes['analytics-settings'].click();
+    assert.equal(page.nodes['analytics-panel'].hidden,false);assert.deepEqual(page.focused,['analytics-panel']);
+    assert.equal(page.nodes['analytics-decline'].hidden,true);assert.equal(page.nodes['analytics-close'].hidden,false);
+    page.nodes['analytics-close'].click();assert.equal(page.nodes['analytics-panel'].hidden,true);assert.deepEqual(page.focused,['analytics-panel','analytics-settings']);
+    page.nodes['analytics-settings'].click();granted=false;await page.nodes['analytics-allow'].click();
+    assert.equal(page.nodes['analytics-panel'].hidden,false);assert.match(page.nodes['analytics-status'].textContent,/Не удалось подтвердить/);assert.equal(page.env.scripts.length,0);
+    granted=true;await page.nodes['analytics-allow'].click();
+    assert.equal(page.nodes['analytics-panel'].hidden,true);assert.equal(page.nodes['analytics-revoke'].hidden,false);assert.equal(page.nodes['analytics-settings'].hidden,true);assert.equal(page.env.scripts.length,1);
+    page=await boot();assert.equal(page.nodes['analytics-panel'].hidden,true);assert.equal(page.nodes['analytics-revoke'].hidden,false);
+    await page.nodes['analytics-revoke'].click();assert.equal(reloads,1);assert.equal(JSON.parse(raw).allowed,false);
+  });
+
 }
