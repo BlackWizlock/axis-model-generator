@@ -16,7 +16,7 @@ def verify(origin):
             data=response.read(1024*1024+1)
             if len(data)>1024*1024: raise ValueError('Response budget exceeded')
             if path.startswith('/health') and json.loads(data)!={'status':'ok'}: raise ValueError('Health unavailable')
-            if path=='/' and (not response.headers.get('Content-Security-Policy') or b'Axis' not in data): raise ValueError('Static/CSP unavailable')
+            if path=='/' and (not response.headers.get('Content-Security-Policy') or 'Аксис Модель'.encode() not in data): raise ValueError('Static/CSP unavailable')
     return {'status':'ok','checks':['DNS','verified HTTPS','live','ready','static','CSP','config']}
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--origin',required=True);args=parser.parse_args()

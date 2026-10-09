@@ -10,7 +10,7 @@ PUBLIC = frozenset({
     'styles.css', 'THIRD-PARTY-NOTICES.md', 'robots.txt', 'sitemap.xml', 'favicon.ico',
     *('src/' + name + '.js' for name in ('api','auth','input-formats','upload','sha256','hash-worker','jobs','preview','app','checks','shell','analytics')),
     *('vendor/' + name for name in ('three.module.js','three.core.js','OrbitControls.js','THREE-LICENSE.txt')),
-    *('assets/' + name for name in ('axis-sign.png','inventory.json')),
+    *('assets/' + name for name in ('axis-sign.png','max-icon.png','inventory.json','revit-model.svg','dwg-plan.svg','npm-result.svg')),
     *('assets/fonts/' + name for name in ('manrope-latin-wght-normal.woff2','manrope-cyrillic-wght-normal.woff2',
       'geologica-latin-700-normal.woff2','geologica-cyrillic-700-normal.woff2','geologica-latin-800-normal.woff2',
       'geologica-cyrillic-800-normal.woff2','MANROPE-OFL.txt','GEOLOGICA-OFL.txt')),

@@ -2,7 +2,7 @@ import './shell.js';
 import {trackGoal,watchDiagnostic,observeDiagnostic} from './analytics.js';
 import {getChecks,renderChecks,completionText,runSourceLabel} from './checks.js';
 import {api,ApiError,artifactPath,setCsrfToken} from './api.js';
-import {allowedExtensions,acceptsFile,unavailableFormatText,rejectedFileText} from './input-formats.js';
+import {allowedExtensions,acceptsFile,rejectedFileText} from './input-formats.js';
 import {guestSession} from './auth.js';
 import {uploadFile,UPLOAD_CAP,uploadStageText} from './upload.js';
 import {getJobs,getJob,createJob,cancelJob,deleteJob,startPolling,statusText,terminal,jobAxes,jobArtifacts} from './jobs.js';
@@ -22,7 +22,7 @@ function setUser(user){
 }
 function checkChosenFile(){
  const file=byId('input-file').files[0];
- if(!allowedExtensions(state.inputFormats)){message('upload-message','Загрузка недоступна. Не удалось получить доступные форматы сервера.',true);byId('upload-submit').disabled=true;return false;}
+ if(!allowedExtensions(state.inputFormats)){message('upload-message','Не удалось подготовить загрузку. Обновите страницу и повторите попытку.',true);byId('upload-submit').disabled=true;return false;}
  if(!file){byId('upload-submit').disabled=!state.user||!!state.upload;return false;}
  if(!acceptsFile(file,byId('input-kind').value,state.inputFormats)){message('upload-message',rejectedFileText(file,state.inputFormats),true);byId('upload-submit').disabled=true;return false;}
  if(!Number.isSafeInteger(file.size)||file.size<1||file.size>Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)){message('upload-message','Файл превышает допустимый размер или пуст. Выберите другой файл.',true);byId('upload-submit').disabled=true;return false;}
@@ -35,7 +35,7 @@ function setInputFormats(rows){
  const labels={'portable-package':'Переносимый пакет v1','zip-fbx':'ZIP с FBX'};
  select.replaceChildren(...rows.filter(row=>row.upload).map(row=>{const option=element('option',labels[row.id]||row.id.toUpperCase());option.value=row.id;return option;}));
  select.value=rows.find(row=>row.upload&&row.id===selected)?.id||rows.find(row=>row.upload)?.id||'';
- byId('input-format-reasons').replaceChildren(...rows.filter(row=>!row.upload).map(row=>element('p',unavailableFormatText(row),'small')));
+ byId('input-format-reasons').replaceChildren();
  checkChosenFile();
 }
 function chosenFileChanged(){if(checkChosenFile())message('upload-message','');}
@@ -46,7 +46,7 @@ dropZone.addEventListener('dragover',event=>{event.preventDefault();dropZone.cla
 dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragging'));
 dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('dragging');if(state.upload||!event.dataTransfer?.files.length)return;byId('input-file').files=event.dataTransfer.files;chosenFileChanged();});
 const localDate=new Date();byId('submission-date').value=`${localDate.getFullYear()}-${String(localDate.getMonth()+1).padStart(2,'0')}-${String(localDate.getDate()).padStart(2,'0')}`;
-function updateUploadHeartbeat(started){byId('upload-heartbeat').textContent=`${uploadStageText(state.uploadPhase)} · последний ответ сервера: ${state.uploadReply?`${Math.floor((Date.now()-state.uploadReply)/1000)} с назад`:'ещё не получен'}. Время ожидания: ${Math.floor((Date.now()-started)/1000)} с.`;}
+function updateUploadHeartbeat(started){byId('upload-heartbeat').textContent=`${uploadStageText(state.uploadPhase)} · последнее обновление: ${state.uploadReply?`${Math.floor((Date.now()-state.uploadReply)/1000)} с назад`:'ещё не получен'}. Время ожидания: ${Math.floor((Date.now()-started)/1000)} с.`;}
 byId('upload-form').addEventListener('submit',async event=>{
  event.preventDefault();if(!state.user||state.upload)return;const file=byId('input-file').files[0];if(!checkChosenFile())return;
  state.selectionEpoch++;state.selected=null;state.demo=false;state.selectedFingerprint=null;state.checkSummary=null;state.checkFingerprint=null;resetPreview();byId('preview-provenance').textContent='НОВЫЙ ПАКЕТ';byId('viewer').textContent='Новый пакет. Результат появится после обработки.';message('preview-message','');byId('checks-list').replaceChildren();byId('checks-summary').textContent='Новый пакет. Проверки начнутся после принятия файла сервером.';
@@ -80,7 +80,7 @@ function renderJobs(){
 }
 async function refreshJobs(){
  const user=state.user;if(!user)return[];
- try{const result=await getJobs();if(state.user!==user)return[];if(!Array.isArray(result.jobs))throw new ApiError('invalid_response');state.jobs=result.jobs;state.cursor=result.nextCursor||null;renderJobs();state.lastReply=Date.now();message('jobs-message',`Ответ сервера получен ${new Date(state.lastReply).toLocaleTimeString('ru-RU')}.`);
+ try{const result=await getJobs();if(state.user!==user)return[];if(!Array.isArray(result.jobs))throw new ApiError('invalid_response');state.jobs=result.jobs;state.cursor=result.nextCursor||null;renderJobs();state.lastReply=Date.now();message('jobs-message',`Список обновлён ${new Date(state.lastReply).toLocaleTimeString('ru-RU')}.`);
   if(state.selected){const job=state.jobs.find(n=>n.id===state.selected);if(job&&!terminal.has(job.state)&&job.state!=='deleting')await refreshChecks(job);else if(job&&jobFingerprint(job)!==state.selectedFingerprint)await openJob(job.id,{scroll:false});}
   state.jobs.forEach(observeDiagnostic);return state.jobs;
  }catch(error){if(state.user===user){message('jobs-message',`${safeError(error)} Связь не подтверждена. Последний ответ: ${state.lastReply?new Date(state.lastReply).toLocaleTimeString('ru-RU'):'ещё не получен'}. Нажмите Обновить после восстановления сети.`,true);if(error.status===401){setUser(null);message('session-message','Сессия завершена. Обновите страницу, чтобы начать новую.',true);}}throw error;}
@@ -129,9 +129,9 @@ window.addEventListener('pageshow',async event=>{
  if(state.selected)await openJob(state.selected,{scroll:false});else if(state.demo)byId('demo-button').click();
 });
 async function start(){
- try{const config=await api('/api/config');if(config.sourceLink!=='https://github.com/BlackWizlock/axis-model-generator')throw new ApiError('invalid_config');state.limits=config.limits||state.limits;setInputFormats(config.inputFormats);message('service-message','Техническая диагностика. Исследовательские профили; генерация НПМ, ВПМ и IFC пока недоступна.');}
+ try{const config=await api('/api/config');if(config.sourceLink!=='https://github.com/BlackWizlock/axis-model-generator')throw new ApiError('invalid_config');state.limits=config.limits||state.limits;setInputFormats(config.inputFormats);message('service-message','Файлы и результаты доступны только в вашей приватной сессии.');}
  catch(error){message('service-message',safeError(error),true);}
- try{await guestSession();setUser(await api('/api/auth/me'));message('session-message',allowedExtensions(state.inputFormats)?'Готово к загрузке.':'Приватная сессия готова. Загрузка недоступна до получения форматов сервера.');}catch(error){setUser(null);message('session-message',safeError(error),true);}
+ try{await guestSession();setUser(await api('/api/auth/me'));message('session-message',allowedExtensions(state.inputFormats)?'Готово к загрузке.':'Загрузка недоступна. Обновите страницу и повторите попытку.');}catch(error){setUser(null);message('session-message',safeError(error),true);}
 }
 void start();
 
