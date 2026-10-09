@@ -191,9 +191,9 @@
       "sha256": "7f12af212538f8d7750e5e485dcffbdbf773faa142d4a16cf9440ac11169568e"
     },
     {
-      "bytes": 27538,
+      "bytes": 27652,
       "path": "public/export-allowlist.json",
-      "sha256": "65616c094441733090f7943cb5e004aa75749a1a2a9792c22c44b93c2a0fb1cc"
+      "sha256": "bfc59cf7c997b5f2b42ba2f2d69c23a1d13cfdc2a8552516b66720a212a48937"
     },
     {
       "bytes": 167,
@@ -751,6 +751,11 @@
       "sha256": "6bdc52a6e5c18450c4a0cb84e1a7209e62d2746e56681822e43296c7f2300557"
     },
     {
+      "bytes": 2556,
+      "path": "tests/test_verify_web_deploy.py",
+      "sha256": "89a64af7bd0403f14468e84997fb1aea76430b8ee41a1f87684495ee036ce429"
+    },
+    {
       "bytes": 35,
       "path": "tests/web/__init__.py",
       "sha256": "a89c3481557a7a1c23563ff6283cb87b4f5289ce7095b71a5341c0ade4d52eaf"
@@ -1243,5 +1248,5 @@
   ],
   "provenance": "sanitized_source_snapshot",
   "schema_version": 1,
-  "source_revision": "5f3eef2f03d93a84a77cee480a879c419e3a159b"
+  "source_revision": "1afe3b8f5c920df155a93db230f2cad365f6983a"
 }
