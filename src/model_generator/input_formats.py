@@ -15,7 +15,7 @@ def public_formats() -> list[dict]:
     """Return fresh rows, without granting capabilities to planned adapters."""
     return [dict(id=kind, extensions=list(extensions),
         upload=kind in _ACCEPTED, diagnostics=kind in _ACCEPTED,
-        preview=kind == 'portable-package', generation=False,
+        preview=kind in _ACCEPTED, generation=False,
         reason=None if kind in _ACCEPTED else 'engine_unavailable')
         for kind, extensions in _EXTENSIONS]
 

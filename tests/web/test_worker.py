@@ -588,16 +588,20 @@ with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verifie
                 intents=con.execute("SELECT state FROM job_object_intents WHERE object_id IN (SELECT id FROM artifacts WHERE job_id=%s)",(dto['id'],)).fetchall()
                 quota=con.execute('SELECT storage_bytes FROM quota_scopes WHERE scope=%s',(self.owner['userId'],)).fetchone()['storage_bytes']
             self.assertEqual(job['state'],'completed')
-            self.assertEqual(set(job['checkpoint']),{'schema','fingerprint','inputHash','artifact','model'})
-            self.assertEqual(set(artifacts),{'report','model'})
+            self.assertEqual(set(job['checkpoint']),{'schema','fingerprint','inputHash','artifact','model','previewInput','thumbnail'})
+            self.assertEqual(set(artifacts),{'report','model','preview','thumbnail'})
             self.assertTrue(all(a['state']=='ready' for a in artifacts.values()))
-            self.assertEqual([i['state'] for i in intents],['complete','complete'])
+            self.assertEqual([i['state'] for i in intents],['complete']*4)
             model=artifacts['model']
             self.assertEqual(model['object_key'],f"owners/{self.owner['userId']}/jobs/{dto['id']}/{'a'*32}/model.fbx")
             self.assertEqual(quota,len(wire)+sum(a['bytes'] for a in artifacts.values()))
             result=self.app.state.jobs.get_owned(self.owner['userId'],dto['id'],int(time.time()))
             self.assertEqual(result['capabilities']['model'],{'availability':'available','reason':None})
+            self.assertEqual(result['capabilities']['preview'],{'availability':'available','reason':None})
             self.assertTrue(all(result['capabilities'][kind]['availability']=='unavailable' for kind in ('npm','vpm','ifc')))
+            # The view shows the built file: the same triangles, nothing of the source beyond it.
+            view=self.client.get(f"/api/jobs/{dto['id']}/artifacts/{artifacts['preview']['id']}").json()
+            self.assertEqual(view['provenance'],'reduced_model')
             response=self.client.get(f"/api/jobs/{dto['id']}/artifacts/{model['id']}")
             self.assertEqual(response.status_code,200,response.text)
             self.assertEqual(response.headers['content-type'],'application/octet-stream')
@@ -607,6 +611,7 @@ with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verifie
             report=self.client.get(f"/api/jobs/{dto['id']}/artifacts/{artifacts['report']['id']}").json()
             self.assertEqual(report['reduced_model']['status'],'built')
             self.assertEqual(report['reduced_model']['output_triangles'],sum(len(m.triangles)//3 for m in read_scene(parse_fbx(response.content)).meshes))
+            self.assertEqual(view['triangleCount'],report['reduced_model']['output_triangles'])
             # A later worker epoch trusts only the hash-checked stored file and never reparses.
             with db.transaction() as con:
                 con.execute("UPDATE jobs SET state='running',stage='report',active_reserved=TRUE WHERE id=%s",(dto['id'],))

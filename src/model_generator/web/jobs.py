@@ -67,7 +67,9 @@ def job_dto(row,artifacts,now):
     if result['coverage']['procedure'] not in {'partial','unknown'}: result['coverage']['procedure']='unknown'
     result['coverage']['external']='not_checked'
     result['capabilities'] = {kind: {'availability': 'unavailable', 'reason': 'generation_not_implemented'} for kind in ('npm', 'vpm', 'ifc')}
-    result['capabilities']['preview'] = {'availability': 'unavailable', 'reason': 'zip_fbx_preview_not_verified' if row['input_kind'] == 'zip-fbx' else row.get('preview_failure_code') or ('preview_unsupported' if row['input_kind'] == 'fbx' else 'preview_pending')}
+    # A finished job that recorded no reason was processed before its kind had a view.
+    result['capabilities']['preview'] = {'availability': 'unavailable', 'reason': row.get('preview_failure_code') or (
+        'preview_unsupported' if row['input_kind'] != 'portable-package' and row['state'] in {'completed', 'failed'} else 'preview_pending')}
     result['capabilities']['model'] = {'availability': 'unavailable', 'reason': 'model_unsupported' if row['input_kind'] == 'portable-package' else 'model_not_built'}
     result['artifacts'] = []
     if row['state'] in {'completed', 'failed'} and not row['cancel_requested'] and row['expires_at']>now:
@@ -75,7 +77,7 @@ def job_dto(row,artifacts,now):
             result['artifacts'].append({**{key:item[key] for key in ('id','kind','bytes','sha256')}, 'url': f"/api/jobs/{row['id']}/artifacts/{item['id']}"})
     if row['input_kind'] in {'zip-fbx','fbx'} and any(item['kind']=='model' for item in result['artifacts']):
         result['capabilities']['model']={'availability':'available','reason':None}
-    if row['input_kind']=='portable-package' and {'preview','thumbnail'} <= {item['kind'] for item in result['artifacts']}:
+    if {'preview','thumbnail'} <= {item['kind'] for item in result['artifacts']}:
         result['capabilities']['preview']={'availability':'available','reason':None}
     return result
 

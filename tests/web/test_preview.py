@@ -198,6 +198,39 @@ class PreviewTests(unittest.TestCase):
             with self.subTest(location=location), self.assertRaises(preview.PreviewError):
                 preview.build_preview(*altered(package, inspection, scene=scene), preview.PreviewLimits())
 
+    def test_reduced_model_meshes_become_one_centred_float32_document(self):
+        from array import array
+        from model_generator.fbx_write import ExportMesh
+        far = 1000.123456789
+        meshes = [ExportMesh('a', array('d', [far, 0, 0, far + 1, 0, 0, far, 1, 0]), array('i', [0, 1, 2])),
+                  ExportMesh('empty', array('d'), array('i')),
+                  ExportMesh('b', array('d', [far, 0, 2, far + 1, 0, 2, far, 1, 2]), array('i', [0, 2, 1]))]
+        document = preview.build_mesh_preview(meshes, preview.PreviewLimits())
+        self.assertEqual((document['provenance'], document['vertexCount'], document['triangleCount']),
+                         ('reduced_model', 6, 2))
+        self.assertEqual(document['indices'], [0, 1, 2, 3, 5, 4])
+        self.assertEqual(document['bounds'], {'min': [-.5, -.5, -1], 'max': [.5, .5, 1]})
+        for value in document['positions']:
+            self.assertAlmostEqual(struct.unpack('<f', struct.pack('<f', value))[0], value, places=7)
+            self.assertLessEqual(len(repr(value)), 12)
+        for n, expected in enumerate([far + .5, .5, 1]):
+            self.assertAlmostEqual(document['origin'][n], expected, places=9)
+        self.assertEqual(preview.decode_preview_json(preview._encode(document, preview.PreviewLimits()),
+                                                     preview.PreviewLimits()), document)
+
+    def test_reduced_model_view_states_budget_and_empty_geometry(self):
+        from array import array
+        from model_generator.fbx_write import ExportMesh
+        mesh = ExportMesh('a', array('d', [0, 0, 0, 1, 0, 0, 0, 1, 0]), array('i', [0, 1, 2]))
+        for limits in (preview.PreviewLimits(vertices=2), preview.PreviewLimits(triangles=1)):
+            with self.assertRaises(preview.PreviewError) as error:
+                preview.build_mesh_preview([mesh, mesh], limits)
+            self.assertEqual(error.exception.code, 'preview_budget')
+        for meshes in ([], [ExportMesh('bad', array('d', [0, 0, 0, 1, 0, 0, 0, 1, 0]), array('i', [0, 1, 3]))]):
+            with self.assertRaises(preview.PreviewError) as error:
+                preview.build_mesh_preview(meshes, preview.PreviewLimits())
+            self.assertEqual(error.exception.code, 'preview_unsupported')
+
     def test_empty_scene_is_honest_unavailable(self):
         scene = make_scene()
         scene.update(meshes=[], instances=[], materials=[])

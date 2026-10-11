@@ -3,15 +3,19 @@
 Edges are collapsed onto one of their own end points, so every remaining
 vertex is an original vertex. A collapse is accepted only while the moved
 vertex stays within `max_error` metres of the plane of every original
-triangle it has absorbed. Open borders and borders between materials add
-their own planes, so outlines, openings and material areas keep their shape.
+triangle it has absorbed. Open borders, borders between materials and seams
+of the texture coordinates add their own planes, so outlines, openings,
+material areas and the pieces of the unwrapping keep their shape.
+Texture coordinates stay with the corners of the triangles. A collapse is
+accepted only while the picture on every triangle it reshapes has slid, in
+total, no further than `max_error` metres along the surface.
 Collapses that would fold the surface or change its topology are skipped.
 Of several triangles on the same three vertices one is kept: the result is
 meant to be drawn two-sided.
 """
 
 from array import array
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import heapq
 import math
 
@@ -29,6 +33,7 @@ class Simplified:
     triangles: array
     material_indices: array
     report: dict
+    uvs: array = field(default_factory=lambda: array('d'))  # u, v of every triangle corner, or empty
 
 
 class OverBudget(Exception):
@@ -60,13 +65,32 @@ def _distance(q, p):
             + 2 * q[5] * y * z + 2 * q[6] * y + q[7] * z * z + 2 * q[8] * z + q[9])
 
 
-def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_materials=(), expired=None):
+def _slide(pu, pa, pb, tu, ta, tb, pv, tv):
+    """Metres the picture slides on triangle u, a, b once corner u sits at pv with tv.
+
+    The old picture puts the texture point tv at one place of the old triangle;
+    the new one puts it at pv. Their distance is the largest slide over the new
+    triangle, because corners a and b keep both their place and their picture.
+    None: the old triangle shows a single line or point of the picture and tv
+    is not on it.
+    """
+    ax, ay, bx, by = ta[0] - tu[0], ta[1] - tu[1], tb[0] - tu[0], tb[1] - tu[1]
+    x, y = tv[0] - tu[0], tv[1] - tu[1]
+    area = ax * by - ay * bx
+    if abs(area) <= 1e-14 * (abs(ax * by) + abs(ay * bx)) or area == 0:
+        return 0.0 if tv in (tu, ta, tb) else None
+    wa, wb = (x * by - y * bx) / area, (ax * y - ay * x) / area
+    return math.sqrt(sum((pu[k] + wa * (pa[k] - pu[k]) + wb * (pb[k] - pu[k]) - pv[k]) ** 2 for k in range(3)))
+
+
+def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_materials=(), expired=None, uvs=()):
     """Return the reduced mesh and a report, or refuse with a ReadError.
 
     `material_indices` holds one slot per triangle or is empty. Triangles of
     `locked_materials` and their vertices are left untouched. `expired` is
     asked on entry and from time to time in every pass; once it answers yes
-    the work stops with OverBudget.
+    the work stops with OverBudget. `uvs` holds u and v of every triangle
+    corner, six numbers per triangle, or is empty.
     """
     def look(step=0):
         # Every pass over the mesh looks at the time, the first time on entry.
@@ -79,6 +103,8 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
         _reject('A mesh needs whole vertices and triangles')
     if len(material_indices) not in (0, faces):
         _reject('Material assignment must cover every triangle')
+    if len(uvs) not in (0, faces * 6) or not all(math.isfinite(c) for c in uvs):
+        _reject('Texture coordinates must cover every triangle corner')
     if not (isinstance(max_error, (int, float)) and math.isfinite(max_error) and max_error >= 0):
         _reject('Deviation must be a finite number that is not negative')
     if not all(math.isfinite(c) for c in positions):
@@ -98,8 +124,11 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
             source.append(start)
             points.append(tuple(positions[start + axis] - centre[axis] for axis in range(3)))
         remap.append(welded[key])
+    # Each table is let go as soon as its pass is over: the passes that follow
+    # need the memory, and a large mesh fits the process only this way.
+    del welded
 
-    corners, materials, around = [], [], [set() for _ in points]
+    corners, materials, around, coords = [], [], [set() for _ in points], []
     seen, coincident = set(), 0
     for face in range(faces):
         look(face)
@@ -117,6 +146,9 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
             around[vertex].add(len(corners))
         corners.append([a, b, c])
         materials.append(material_indices[face] if len(material_indices) else 0)
+        if len(uvs):
+            coords.append([tuple(uvs[face * 6 + k:face * 6 + k + 2]) for k in (0, 2, 4)])
+    del remap, seen
 
     quadrics = [[0.0] * 10 for _ in points]
     def absorb(vertex, quadric):
@@ -134,6 +166,10 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
             absorb(vertex, quadric)
         for u, v in ((a, b), (b, c), (c, a)):
             edges.setdefault((min(u, v), max(u, v)), []).append(face)
+    def seam(u, v, first, second):
+        # The two triangles disagree about the picture at an end of their edge.
+        return bool(coords) and any(coords[first][corners[first].index(w)] != coords[second][corners[second].index(w)]
+                                    for w in (u, v))
     locked = {v for face, slot in enumerate(materials) if slot in locked_materials for v in corners[face]}
     border = set()
     for step, ((u, v), sharing) in enumerate(edges.items()):
@@ -141,7 +177,7 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
         if len(sharing) > 2:
             # More than two triangles on an edge: keep such places as they are.
             locked.update((u, v))
-        elif len(sharing) == 1 or materials[sharing[0]] != materials[sharing[1]]:
+        elif len(sharing) == 1 or materials[sharing[0]] != materials[sharing[1]] or seam(u, v, *sharing):
             if len(sharing) == 1:
                 border.update((u, v))
             for face in sharing:
@@ -166,8 +202,10 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
         look(step)
         offer(u, v)
         offer(v, u)
+    del edges
 
     reached, collapses, turns = 0.0, 0, 0
+    slid, slide_reached = [0.0] * len(coords), 0.0
     while heap:
         turns += 1
         if expired is not None and not turns % BUDGET_STEP and expired():
@@ -197,6 +235,31 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
                 break
         if folded:
             continue
+        moved = {}
+        if coords:
+            # A triangle that stays takes the picture of the far end from a
+            # vanishing triangle of its own piece of the unwrapping.
+            known = {}
+            for face in shared:
+                known.setdefault(coords[face][corners[face].index(u)], set()).add(coords[face][corners[face].index(v)])
+            for face in around[u] - shared:
+                at = corners[face].index(u)
+                tu, far = coords[face][at], None
+                if len(known.get(tu, ())) == 1:
+                    far, = known[tu]
+                    a, b = (at + 1) % 3, (at + 2) % 3
+                    slide = _slide(points[u], points[corners[face][a]], points[corners[face][b]],
+                                   tu, coords[face][a], coords[face][b], points[v], far)
+                if far is None or slide is None or slid[face] + slide > max_error:
+                    moved = None
+                    break
+                moved[face] = (at, far, slide)
+            if moved is None:
+                continue
+        for face, (at, far, slide) in moved.items():
+            coords[face][at] = far
+            slid[face] += slide
+            slide_reached = max(slide_reached, slid[face])
         for face in shared:
             for w in corners[face]:
                 around[w].discard(face)
@@ -215,7 +278,8 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
             offer(v, w)
             offer(w, v)
 
-    kept, out_positions, out_triangles, out_materials = {}, array('d'), array('I'), array('i')
+    del heap, quadrics, around, version, alive, locked, border, slid
+    kept, out_positions, out_triangles, out_materials, out_uvs = {}, array('d'), array('I'), array('i'), array('d')
     seen = set()
     for face, triple in enumerate(corners):
         look(face)
@@ -232,10 +296,15 @@ def simplify(positions, triangles, material_indices=(), max_error=0.02, locked_m
             out_triangles.append(kept[vertex])
         if len(material_indices):
             out_materials.append(materials[face])
+        if coords:
+            for pair in coords[face]:
+                out_uvs.extend(pair)
     if not out_triangles:
         _reject('The mesh has no surface')
     report = {'input_triangles': faces, 'output_triangles': len(out_triangles) // 3,
               'input_vertices': count, 'output_vertices': len(kept), 'collapses': collapses,
               'coincident_triangles': coincident,
               'max_error': max_error, 'reached_error': math.sqrt(reached)}
-    return Simplified(out_positions, out_triangles, out_materials, report)
+    if coords:
+        report['texture_slide'] = slide_reached
+    return Simplified(out_positions, out_triangles, out_materials, report, out_uvs)

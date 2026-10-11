@@ -1,6 +1,6 @@
 import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {api, setCsrfToken, ApiError, artifactPath} from '../src/api.js';
+import {api, setCsrfToken, ApiError, artifactPath,apiBytes} from '../src/api.js';
 test('API same origin credentials and CSRF only on mutations', async () => {
   const calls = []; const prior = globalThis.fetch;
   globalThis.fetch = async (path, options) => {calls.push({path, options}); return new Response('{}', {headers: {'Content-Type': 'application/json'}});};
@@ -44,4 +44,20 @@ test('transport interruption and timeout explain connectivity and uncertain serv
   await assert.rejects(api('/api/jobs'),error=>error.code==='request_timeout'&&error.status===408&&/ожидания/.test(error.message)&&/проверьте/.test(error.message));
   assert.match(new ApiError('upload_network').message,/сеть/);
  }finally{globalThis.fetch=priorFetch;AbortSignal.timeout=priorTimeout;}
+});
+test('artifact bytes are read whole, bounded and only as a file',async()=>{
+ const prior=globalThis.fetch;let seen;
+ try{
+  globalThis.fetch=async(path,options)=>{seen=[path,options.method,options.headers.get('Accept'),options.credentials,options.redirect];return new Response(new Uint8Array([1,2,3]),{headers:{'Content-Type':'application/octet-stream'}});};
+  assert.deepEqual([...await apiBytes('/api/jobs/a/artifacts/b',16)],[1,2,3]);assert.deepEqual(seen,['/api/jobs/a/artifacts/b','GET','application/octet-stream','same-origin','error']);
+  await assert.rejects(apiBytes('/api/jobs/a/artifacts/b',2),error=>error.code==='response_too_large');
+  await assert.rejects(apiBytes('https://evil.example/api',16),error=>error.code==='invalid_route');
+  await assert.rejects(apiBytes('/api/jobs',0),error=>error.code==='invalid_route');
+  globalThis.fetch=async()=>new Response('{}',{headers:{'Content-Type':'application/json'}});
+  await assert.rejects(apiBytes('/api/jobs/a/artifacts/b',16),error=>error.code==='unexpected_content_type');
+  globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:'not_found'}}),{status:404,headers:{'Content-Type':'application/json'}});
+  await assert.rejects(apiBytes('/api/jobs/a/artifacts/b',16),error=>error.code==='not_found'&&error.status===404);
+  globalThis.fetch=async()=>{throw new TypeError('offline');};
+  await assert.rejects(apiBytes('/api/jobs/a/artifacts/b',16),error=>error.code==='request_network');
+ }finally{globalThis.fetch=prior;}
 });

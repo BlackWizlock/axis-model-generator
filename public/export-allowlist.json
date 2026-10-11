@@ -150,6 +150,10 @@
       "export": "tests/test_fbx_write.py"
     },
     {
+      "source": "tests/test_model_fixture.py",
+      "export": "tests/test_model_fixture.py"
+    },
+    {
       "source": "tests/test_npm_export.py",
       "export": "tests/test_npm_export.py"
     },
@@ -758,6 +762,10 @@
       "export": "web/src/jobs.js"
     },
     {
+      "source": "web/src/model-view.js",
+      "export": "web/src/model-view.js"
+    },
+    {
       "source": "web/src/preview.js",
       "export": "web/src/preview.js"
     },
@@ -812,6 +820,14 @@
     {
       "source": "web/tests/lifecycle.vitest.mjs",
       "export": "web/tests/lifecycle.vitest.mjs"
+    },
+    {
+      "source": "web/tests/model-view.test.mjs",
+      "export": "web/tests/model-view.test.mjs"
+    },
+    {
+      "source": "web/tests/model-view.vitest.mjs",
+      "export": "web/tests/model-view.vitest.mjs"
     },
     {
       "source": "web/tests/preview.test.mjs",
@@ -1004,6 +1020,10 @@
     {
       "source": "web/tests/support/analytics-cases.mjs",
       "export": "web/tests/support/analytics-cases.mjs"
+    },
+    {
+      "source": "web/tests/support/model-fixture.mjs",
+      "export": "web/tests/support/model-fixture.mjs"
     },
     {
       "source": "scripts/build-sitemap.mjs",

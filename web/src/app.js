@@ -1,19 +1,20 @@
 import './shell.js';
 import {trackGoal,watchDiagnostic,observeDiagnostic} from './analytics.js';
 import {getChecks,renderChecks,completionText,runSourceLabel} from './checks.js';
-import {api,ApiError,artifactPath,setCsrfToken} from './api.js';
+import {api,apiBytes,ApiError,artifactPath,setCsrfToken} from './api.js';
 import {allowedExtensions,acceptsFile,kindForFile,rejectedFileText} from './input-formats.js';
 import {guestSession} from './auth.js';
 import {uploadFile,UPLOAD_CAP,uploadStageText} from './upload.js';
 import {getJobs,getJob,createJob,cancelJob,deleteJob,startPolling,statusText,terminal,jobAxes,jobArtifacts} from './jobs.js';
 import {mountPreview,previewReason} from './preview.js';
+import {readModel,MODEL_MAX_BYTES} from './model-view.js';
 const byId=id=>document.getElementById(id);
 const state={inputFormats:null,user:null,poller:null,upload:null,viewer:null,selected:null,demo:false,selectionEpoch:0,selectedFingerprint:null,jobs:[],cursor:null,limits:{uploadBytes:UPLOAD_CAP}};
 function message(id,text,error=false){const node=byId(id);node.textContent=text;node.classList.toggle('error',error);node.setAttribute('role',error?'alert':'status');node.setAttribute('aria-live',error?'assertive':'polite');}
 const safeError=error=>error instanceof ApiError?error.message:error?.name==='AbortError'?'Действие отменено.':'Не удалось выполнить действие. Попробуйте ещё раз.';
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(className)node.className=className;return node;}
 function action(label,callback){const button=element('button',label,'button quiet');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;try{await callback();}catch(error){message('jobs-message',safeError(error),true);}finally{button.disabled=false;}});return button;}
-function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('thumbnail').hidden=true;byId('thumbnail').removeAttribute('src');byId('reset-view').disabled=true;byId('report-panel').hidden=true;byId('report-download').removeAttribute('href');byId('model-download').hidden=true;byId('model-download').removeAttribute('href');}
+function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('viewer-materials').textContent='Нейтральные материалы';byId('thumbnail').hidden=true;byId('thumbnail').removeAttribute('src');byId('reset-view').disabled=true;byId('report-panel').hidden=true;byId('report-download').removeAttribute('href');byId('model-download').hidden=true;byId('model-download').removeAttribute('href');}
 function setUser(user){
  state.user=user;state.poller?.stop();state.poller=null;
  byId('upload-submit').disabled=!user;
@@ -104,7 +105,14 @@ function reducedModelText(model,facts){
  if(!facts||typeof facts!=='object')return'';
  if(!model||facts.status!=='built')return' Упрощённая модель FBX не собрана: геометрию входа не удалось прочитать полностью или результат превышает допустимый размер.';
  if(!Number.isSafeInteger(facts.input_triangles)||!Number.isSafeInteger(facts.output_triangles))return'';
- return` Упрощённая модель FBX: ${facts.output_triangles} из ${facts.input_triangles} треугольников, отклонение не больше 2 см. Исходные файлы приняты как лежащие в общих координатах; текстуры не переносятся.`;
+ return` Упрощённая модель FBX: ${facts.output_triangles} из ${facts.input_triangles} треугольников, отклонение не больше 2 см. Исходные файлы приняты как лежащие в общих координатах; ${reducedTexturesText(facts.textures)}.`;
+}
+function reducedTexturesText(textures){
+ // Задания, обработанные до переноса текстур, несут здесь строку, а не счёт.
+ if(!textures||typeof textures!=='object')return'текстуры не переносятся';
+ const written=Number.isSafeInteger(textures.written)?textures.written:0,left=Number.isSafeInteger(textures.left_out)?textures.left_out:0;
+ if(written>0)return`перенесено файлов текстур: ${written}${left>0?`, не перенесено: ${left}`:''}`;
+ return left>0?`текстуры не перенесены: ${left}`:'текстур у материалов нет';
 }
 async function openJob(id,{scroll=true}={}){
  const epoch=++state.selectionEpoch;const user=state.user;if(!user)return;state.selected=id;state.demo=false;byId('checks-list').replaceChildren();byId('checks-summary').textContent='Загружаем результаты проверок…';state.checkSummary=null;state.checkFingerprint=null;resetPreview();byId('preview-provenance').textContent='ПРИВАТНЫЙ ПАКЕТ';byId('viewer').textContent='Открываем результат вашего пакета…';message('preview-message','');
@@ -120,9 +128,16 @@ async function openJob(id,{scroll=true}={}){
   }
   const thumbnail=jobArtifacts(job).find(n=>n.kind==='thumbnail');byId('thumbnail').hidden=!thumbnail;if(thumbnail)byId('thumbnail').src=artifactPath(id,thumbnail.id);
   if(job.failure){message('preview-message',`${job.failure.title}. ${job.failure.why} ${job.failure.nextAction} Код обращения: ${job.diagnosticId}.`,true);}
-  if(preview){const document=await api(artifactPath(id,preview.id),{maxBytes:16*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;if(document.provenance!=='uploaded_package')throw new ApiError('invalid_preview');state.viewer=mountPreview(byId('viewer'),document);byId('reset-view').disabled=false;message('preview-message','Проверенная геометрия вашего пакета. Нейтральные материалы; нормативная готовность не подтверждена.');}
+  if(preview){const document=await api(artifactPath(id,preview.id),{maxBytes:16*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;if(document.provenance!==(job.inputKind==='portable-package'?'uploaded_package':'reduced_model'))throw new ApiError('invalid_preview');
+   // Рисунки берутся из самого файла модели. Не прочитался: остаётся проверенный нейтральный просмотр.
+   let surfaces=null;if(document.provenance==='reduced_model'&&model){try{surfaces=await readModel(await apiBytes(artifactPath(id,model.id),MODEL_MAX_BYTES));}catch{surfaces=null;}if(epoch!==state.selectionEpoch||user!==state.user)return;}
+   state.viewer=mountPreview(byId('viewer'),document,surfaces);byId('reset-view').disabled=false;if(state.viewer.textured)byId('viewer-materials').textContent='Текстуры исходника';message('preview-message',previewCaption(document.provenance,state.viewer.textured));}
   else{const reason=job.capabilities?.preview?.reason||(job.inputKind==='zip-fbx'?'zip_fbx_preview_not_verified':null);byId('viewer').textContent=!terminal.has(job.state)&&job.state!=='deleting'?'Результат появится после обработки.':previewReason(reason);}
  }catch(error){if(epoch===state.selectionEpoch&&user===state.user){byId('viewer').textContent='Не удалось открыть результат.';message('preview-message',safeError(error),true);}}
+}
+function previewCaption(provenance,textured){
+ if(provenance!=='reduced_model')return'Проверенная геометрия вашего пакета. Нейтральные материалы; нормативная готовность не подтверждена.';
+ return textured?'Упрощённая модель, собранная из вашего FBX, с текстурами исходника. Освещение и свойства материалов не показаны; нормативная готовность не подтверждена.':'Упрощённая модель, собранная из вашего FBX. Нейтральные материалы, текстуры не показаны; нормативная готовность не подтверждена.';
 }
 byId('demo-button').addEventListener('click',async()=>{
  const button=byId('demo-button');button.disabled=true;const epoch=++state.selectionEpoch;state.selected=null;state.demo=true;resetPreview();byId('preview-provenance').textContent='СИНТЕТИЧЕСКАЯ ДЕМОНСТРАЦИЯ';byId('viewer').textContent='Загружаем демонстрацию…';byId('preview-section').scrollIntoView({block:'start'});

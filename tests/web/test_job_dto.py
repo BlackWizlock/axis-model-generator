@@ -18,15 +18,31 @@ class PreviewReasonTests(unittest.TestCase):
     def reason(self, kind, **extra):
         return job_dto(row(kind, **extra), [], 10)['capabilities']['preview']
 
-    def test_standalone_fbx_never_reports_a_pending_preview(self):
-        # No preview is ever built for this kind, so waiting would be a false promise.
-        self.assertEqual(self.reason('fbx'), {'availability': 'unavailable', 'reason': 'preview_unsupported'})
+    def test_finished_fbx_job_without_a_reason_never_reports_a_pending_preview(self):
+        # Such a job was processed before its kind had a view: waiting would be a false promise.
+        for kind in ('fbx', 'zip-fbx'):
+            self.assertEqual(self.reason(kind), {'availability': 'unavailable', 'reason': 'preview_unsupported'})
+            self.assertEqual(self.reason(kind, state='completed')['reason'], 'preview_unsupported')
+
+    def test_running_fbx_job_waits_for_its_preview(self):
+        for kind in ('fbx', 'zip-fbx'):
+            self.assertEqual(self.reason(kind, state='running')['reason'], 'preview_pending')
+
+    def test_preview_is_available_for_every_kind_with_both_files(self):
+        files = [{'id': str(n) * 32, 'kind': kind, 'bytes': 9, 'sha256': 'c' * 64}
+                 for n, kind in ((2, 'preview'), (3, 'thumbnail'))]
+        for kind in ('fbx', 'zip-fbx', 'portable-package'):
+            self.assertEqual(job_dto(row(kind, state='completed'), files, 10)['capabilities']['preview'],
+                             {'availability': 'available', 'reason': None})
+            self.assertEqual(job_dto(row(kind, state='completed'), files[:1], 10)['capabilities']['preview']['availability'],
+                             'unavailable')
 
     def test_recorded_reason_wins_over_the_default(self):
         self.assertEqual(self.reason('fbx', preview_failure_code='preview_budget')['reason'], 'preview_budget')
 
     def test_other_kinds_keep_their_reasons(self):
-        self.assertEqual(self.reason('zip-fbx')['reason'], 'zip_fbx_preview_not_verified')
+        self.assertEqual(self.reason('zip-fbx', preview_failure_code='preview_roundtrip_error')['reason'],
+                         'preview_roundtrip_error')
         self.assertEqual(self.reason('portable-package')['reason'], 'preview_pending')
 
     def test_reduced_model_is_available_only_with_its_file(self):

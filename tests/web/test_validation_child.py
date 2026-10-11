@@ -47,15 +47,17 @@ class NeutralInputTests(unittest.TestCase):
             self.assertTrue(any(finding['status'] == 'fail' for finding in result.report['findings']))
             self.assertEqual(result.report['input_sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
 
-    def test_standalone_fbx_uses_descriptor_transport_and_has_no_preview(self):
+    def test_standalone_fbx_uses_descriptor_transport_and_shows_its_reduced_model(self):
         from fixtures.builders import scene_bytes
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name in ('input.bin', 'input.zip'):
                 (root / name).write_bytes(scene_bytes(axes=True))
             result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
-            self.assertIsNone(result.preview_input_path)
-            self.assertEqual(result.failure_code, 'preview_unsupported')
+            self.assertEqual(result.preview_input_path, root / 'preview-input.json')
+            self.assertIsNone(result.failure_code)
+            view = json.loads(result.preview_input_path.read_bytes())
+            self.assertEqual((view['provenance'], view['vertexCount'], view['triangleCount']), ('reduced_model', 3, 1))
             states = {finding['rule_id']: finding['status'] for finding in result.report['findings']}
             self.assertEqual(states['fbx.scene'], 'pass')
             self.assertEqual(states['fbx.integrity'], 'pass')
@@ -70,9 +72,9 @@ class NeutralInputTests(unittest.TestCase):
         from unittest import mock
         from fixtures.builders import scene_bytes
         from model_generator.web import validation_child
-        build = validation_child.build_reduced_model
+        build = validation_child.reduce_input
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
-                validation_child, 'build_reduced_model', lambda *args: build(*args, cpu_seconds=-1.0)):
+                validation_child, 'reduce_input', lambda *args: build(*args, cpu_seconds=-1.0)):
             root = Path(directory)
             (root / 'input.bin').write_bytes(scene_bytes(axes=True))
             result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
@@ -81,6 +83,51 @@ class NeutralInputTests(unittest.TestCase):
             self.assertIsNone(result.model_path)
             self.assertFalse((root / 'model.fbx').exists())
             self.assertEqual(result.report['reduced_model'], {'status': 'not_built', 'reason': 'model_budget'})
+            self.assertIsNone(result.preview_input_path)
+            self.assertEqual(result.failure_code, 'preview_budget')
+
+    def test_view_gives_way_when_processor_time_is_spent(self):
+        from unittest import mock
+        from fixtures.builders import scene_bytes
+        from model_generator.web import validation_child
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(validation_child, '_view_time_left', return_value=False):
+            root = Path(directory)
+            (root / 'input.bin').write_bytes(scene_bytes(axes=True))
+            result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
+            self.assertEqual(result.model_path, root / 'model.fbx')
+            self.assertIsNone(result.preview_input_path)
+            self.assertFalse((root / 'preview-input.json').exists())
+            self.assertEqual(result.failure_code, 'preview_budget')
+
+    def test_view_that_would_outlast_the_process_is_given_up_with_the_report_kept(self):
+        from unittest import mock
+        from fixtures.builders import scene_bytes
+        from model_generator.web import validation_child
+        def endless(*_):
+            while True:
+                pass
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(validation_child, 'build_mesh_preview', endless), \
+                mock.patch.object(validation_child, 'cpu_left', lambda: validation_child.REPORT_CPU_MARGIN + 0.3):
+            root = Path(directory)
+            (root / 'input.bin').write_bytes(scene_bytes(axes=True))
+            result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
+            self.assertEqual(result.model_path, root / 'model.fbx')
+            self.assertIsNone(result.preview_input_path)
+            self.assertFalse((root / 'preview-input.json').exists())
+            self.assertEqual((result.failure_code, result.report['reduced_model']['status']), ('preview_budget', 'built'))
+
+    def test_view_over_its_budget_keeps_the_model_and_the_report(self):
+        from fixtures.builders import scene_bytes
+        from model_generator.web.preview import PreviewLimits
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'input.bin').write_bytes(scene_bytes(axes=True))
+            result = validate_input(root / 'input.bin', 'fbx',
+                                    ChildSettings(scratch=root, preview_limits=PreviewLimits(vertices=2)))
+            self.assertEqual(result.model_path, root / 'model.fbx')
+            self.assertIsNone(result.preview_input_path)
+            self.assertEqual(result.failure_code, 'preview_budget')
+            self.assertEqual(result.report['reduced_model']['status'], 'built')
 
     def test_corrupt_standalone_fbx_is_not_success(self):
         from fixtures.builders import scene_bytes

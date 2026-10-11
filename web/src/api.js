@@ -32,8 +32,7 @@ export function opaqueId(id) {
   return id;
 }
 export function artifactPath(jobId, artifactId) {return `/api/jobs/${opaqueId(jobId)}/artifacts/${opaqueId(artifactId)}`;}
-export async function readJson(response, maxBytes = 64 * 1024) {
-  if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('Content-Type') || '')) throw new ApiError('unexpected_content_type', response.status);
+async function readBody(response, maxBytes) {
   const declared = Number(response.headers.get('Content-Length'));
   if (declared > maxBytes) throw new ApiError('response_too_large');
   const reader = response.body?.getReader(); const chunks = []; let total = 0;
@@ -48,11 +47,32 @@ export async function readJson(response, maxBytes = 64 * 1024) {
   } finally {reader.releaseLock();}
   const bytes = new Uint8Array(total); let offset = 0;
   for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.length;}
+  return bytes;
+}
+function checkedRoute(path) {
+  if (typeof path !== 'string' || (path.length>2048 || !/^\/api\/[a-zA-Z0-9_/?=&.%+-]+$/.test(path)) || path.includes('..') || path.includes('//')) throw new ApiError('invalid_route');
+  return path;
+}
+// Файл результата целиком: только чтение, тот же источник, размер ограничен вызывающим.
+export async function apiBytes(path, maxBytes) {
+  checkedRoute(path);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new ApiError('invalid_route');
+  const deadline = AbortSignal.timeout(60_000);
+  let response;
+  try {response = await fetch(path, {method:'GET', headers:new Headers({Accept:'application/octet-stream'}), credentials:'same-origin', redirect:'error', cache:'no-store', signal:deadline});}
+  catch {throw new ApiError(deadline.aborted?'request_timeout':'request_network',deadline.aborted?408:0);}
+  if (!response.ok) throw ApiError.from((await readJson(response)).error, response.status);
+  if (!/^application\/octet-stream(?:\s*;|$)/i.test(response.headers.get('Content-Type') || '')) throw new ApiError('unexpected_content_type', response.status);
+  return readBody(response, maxBytes);
+}
+export async function readJson(response, maxBytes = 64 * 1024) {
+  if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('Content-Type') || '')) throw new ApiError('unexpected_content_type', response.status);
+  const bytes = await readBody(response, maxBytes);
   try {const result = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes)); if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(); return result;}
   catch {throw new ApiError('invalid_response');}
 }
 export async function api(path, options = {}) {
-  if (typeof path !== 'string' || (path.length>2048 || !/^\/api\/[a-zA-Z0-9_/?=&.%+-]+$/.test(path)) || path.includes('..') || path.includes('//')) throw new ApiError('invalid_route');
+  checkedRoute(path);
   const {body, maxBytes, csrf, ...rest} = options;
   const method = (rest.method || 'GET').toUpperCase(); const headers = new Headers(rest.headers);
   headers.set('Accept', 'application/json');headers.delete('X-CSRF-Token');

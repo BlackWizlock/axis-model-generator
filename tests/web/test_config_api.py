@@ -19,7 +19,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(set(rows),{'zip-fbx','portable-package','fbx','ifc','glb','gltf','obj','rvt','dwg','skp','3dm'})
         self.assertEqual([row['id'] for row in dto['inputFormats'] if row['upload']],dto['inputKinds'])
         self.assertEqual([row['id'] for row in dto['inputFormats'] if row['diagnostics']],['zip-fbx','portable-package','fbx'])
-        self.assertEqual([row['id'] for row in dto['inputFormats'] if row['preview']],['portable-package'])
+        self.assertEqual([row['id'] for row in dto['inputFormats'] if row['preview']],['zip-fbx','portable-package','fbx'])
         self.assertFalse(any(row['generation'] for row in dto['inputFormats']))
         self.assertEqual(dto['capabilities'],{kind:{'availability':'unavailable','reason':'generation_not_implemented'} for kind in ('npm','vpm','ifc')})
         for kind in ('ifc','glb','gltf','obj','rvt','dwg','skp','3dm'):

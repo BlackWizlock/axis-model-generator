@@ -1,6 +1,7 @@
 from array import array
 import math
 import random
+import tracemalloc
 import unittest
 
 from model_generator.limits import ReadError
@@ -36,6 +37,11 @@ def join(*parts):
 def triples(positions, triangles):
     points = [tuple(positions[i:i + 3]) for i in range(0, len(positions), 3)]
     return [tuple(points[i] for i in triangles[k:k + 3]) for k in range(0, len(triangles), 3)]
+
+
+def corner_uvs(positions, triangles, picture):
+    """u, v of every triangle corner for a picture given as a function of the place."""
+    return array('d', (c for i in triangles for c in picture(*positions[i * 3:i * 3 + 3])))
 
 
 def cross(a, b, c):
@@ -112,6 +118,27 @@ def box(size, cells):
 
 
 class SimplifyTests(unittest.TestCase):
+    def test_tables_of_finished_passes_do_not_stay_until_the_end(self):
+        # A wavy sheet of separate triangles: nothing welds away and nothing
+        # collapses, so every table reaches its full size.
+        positions, triangles = array('d'), array('I')
+        for column in range(60):
+            for row in range(50):
+                for face in (((0, 0), (1, 0), (0, 1)), ((1, 0), (1, 1), (0, 1))):
+                    for dx, dy in face:
+                        x, y = column * 3 + dx, row * 3 + dy
+                        positions.extend((x, y, math.sin(x * 1.7) * math.cos(y * 2.3)))
+                        triangles.append(len(triangles))
+        tracemalloc.start()
+        try:
+            result = simplify(positions, triangles, max_error=0.02)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(result.report['output_triangles'], 6000)
+        # 3.4 KiB a triangle with every table kept to the end, 2.5 KiB without.
+        self.assertLess(peak / 6000, 3000)
+
     def test_flat_wall_becomes_two_triangles(self):
         positions, triangles = mesh(*sheet(20, 12, lambda i, j: (1000 + i * 0.5, 7.0, j * 0.25)))
         result = simplify(positions, triangles, max_error=0.001)
@@ -257,8 +284,50 @@ class SimplifyTests(unittest.TestCase):
         free, watched = simplify(positions, triangles), simplify(positions, triangles, expired=lambda: False)
         self.assertEqual((free.triangles, free.positions, free.report), (watched.triangles, watched.positions, watched.report))
 
+    def test_flat_wall_keeps_its_picture_through_the_reduction(self):
+        positions, triangles = mesh(*sheet(20, 12, lambda i, j: (1000 + i * 0.5, 7.0, j * 0.25)))
+        picture = lambda x, y, z: ((x - 1000) / 10, z / 3)
+        result = simplify(positions, triangles, max_error=0.001, uvs=corner_uvs(positions, triangles, picture))
+        plain = simplify(positions, triangles, max_error=0.001)
+        self.assertEqual((result.triangles, result.positions), (plain.triangles, plain.positions))
+        self.assertEqual(result.report['output_triangles'], 2)
+        # Every corner still shows the point of the picture it showed before.
+        self.assertEqual(result.uvs, corner_uvs(result.positions, result.triangles, picture))
+        self.assertLess(result.report['texture_slide'], 1e-9)
+        self.assertEqual((len(plain.uvs), 'texture_slide' in plain.report), (0, False))
+        # One point of the picture over the whole wall holds nothing back either.
+        same = simplify(positions, triangles, max_error=0.001, uvs=array('d', (0.25, 0.5) * len(triangles)))
+        self.assertEqual((same.report['output_triangles'], set(zip(same.uvs[::2], same.uvs[1::2]))), (2, {(0.25, 0.5)}))
+
+    def test_seam_between_two_pieces_of_the_unwrapping_stays_in_place(self):
+        positions, triangles = mesh(*sheet(20, 12, lambda i, j: (1000 + i * 0.5, 7.0, j * 0.25)))
+        left, right = lambda x, y, z: ((x - 1000) / 20, z / 6), lambda x, y, z: (0.5 + z / 6, (x - 1000) / 20)
+        side = lambda face: left if sum(p[0] for p in face) / 3 < 1005 else right
+        faces = triples(positions, triangles)
+        uvs = array('d', (c for face in faces for point in face for c in side(face)(*point)))
+        result = simplify(positions, triangles, max_error=0.001, uvs=uvs)
+        reduced = triples(result.positions, result.triangles)
+        self.assertEqual(len(reduced), 4)
+        self.assertEqual(result.uvs, array('d', (c for face in reduced for point in face for c in side(face)(*point))))
+        # Both pieces meet on the line of the seam and nowhere else.
+        self.assertEqual({p[0] for face in reduced for p in face}, {1000.0, 1005.0, 1010.0})
+
+    def test_stretched_picture_holds_the_triangles_that_carry_it(self):
+        positions, triangles = mesh(*sheet(20, 12, lambda i, j: (1000 + i * 0.5, 7.0, j * 0.25)))
+        picture = lambda x, y, z: (((x - 1000) / 10) ** 2, z / 3)
+        result = simplify(positions, triangles, max_error=0.001, uvs=corner_uvs(positions, triangles, picture))
+        # The picture changes its scale along the wall: only collapses across it are free.
+        self.assertEqual(result.report['output_triangles'], 40)
+        self.assertLessEqual(result.report['texture_slide'], 0.001)
+        self.assertEqual(result.uvs, corner_uvs(result.positions, result.triangles, picture))
+        loose = simplify(positions, triangles, max_error=1.0, uvs=corner_uvs(positions, triangles, picture))
+        self.assertLess(loose.report['output_triangles'], 40)
+
     def test_invalid_input_is_refused(self):
         positions, triangles = mesh(*sheet(2, 2, lambda i, j: (i, j, 0)))
+        for uvs in (array('d', (0.0,) * 47), array('d', (math.nan,) * 48)):
+            with self.subTest(uvs=len(uvs)), self.assertRaises(ReadError):
+                simplify(positions, triangles, uvs=uvs)
         cases = [(positions[:-1], triangles), (positions, triangles[:-1]), (positions, array('I')),
                  (positions, array('I', (0, 1, 99))), (array('d', (math.inf,) * 27), triangles),
                  (array('d', (1.0, 1.0, 1.0) * 9), triangles)]

@@ -4,7 +4,15 @@ import unittest
 from model_generator.dxf_heights import HeightSample, HeightSurvey
 from model_generator.fbx_binary import parse_fbx
 from model_generator.fbx_scene import read_scene
-from model_generator.fbx_write import ExportMaterial, ExportMesh, write_fbx
+from functools import partial
+
+# The tests of this file read the texture coordinates with the scene.
+plain_scene, read_scene = read_scene, partial(read_scene, unwrapping=True)
+from model_generator.fbx_binary import Node
+from model_generator.fbx_write import ExportMaterial, ExportMesh, ExportTexture, write_fbx
+from fixtures.builders import png_bytes, scene_bytes
+from test_simplify import corner_uvs
+from unittest import mock
 from model_generator.npm_export import export_npm, export_scenes
 from model_generator.terrain import ControlPoint, Placement, TerrainIndex, build_terrain, place_building
 from test_simplify import area, bounds, box, join, mesh, sheet, triples, volume
@@ -101,7 +109,7 @@ class ExportTests(unittest.TestCase):
         self.assertLess(report['triangle_share'], 0.05)
         self.assertEqual(report['objects'][1]['materials'], ['Facade', 'Glass'])
         self.assertEqual((report['objects'][3]['materials'], report['objects'][3]['materials_assigned']), ([], False))
-        self.assertEqual(report['textures'], 'not exported')
+        self.assertEqual(report['textures'], {'written': 0, 'bytes': 0, 'left_out': 0})
         self.assertEqual(report['control_residuals'], self.placed.residuals)
 
     def test_clashing_names_stay_distinct(self):
@@ -113,6 +121,73 @@ class ExportTests(unittest.TestCase):
         roots = parse_fbx(export_npm(scene, placed, self.terrain).data)
         self.assertEqual(sorted(names(roots)[m.model_id] for m in read_scene(roots).meshes),
                          ['Terrain', 'Terrain 2', 'Terrain 2 2'])
+
+    def textured(self):
+        positions, triangles = mesh(*sheet(10, 6, lambda i, j: (500 + i * 0.5, 7.0, j * 0.5)))
+        picture, rough = png_bytes(), png_bytes(128, 128)
+        wall = ExportMaterial('Wall', textures=(ExportTexture('DiffuseColor', 'wall.png', picture),
+                                                ExportTexture('ShininessExponent', 'rough.png', rough)))
+        place = lambda x, y, z: ((x - 500) / 5, z / 3)
+        return parse_fbx(write_fbx([ExportMesh('Front', positions, triangles, (wall,),
+                                               uvs=corner_uvs(positions, triangles, place))])), place, picture, rough
+
+    def contents(self, roots):
+        objects = next(n for n in roots if n.name == 'Objects')
+        return {n.child('RelativeFilename').props[0]: n.child('Content').props[0] for n in objects.children if n.name == 'Video'}
+
+    def test_pictures_and_texture_coordinates_survive_the_reduction(self):
+        roots, place, picture, rough = self.textured()
+        result = export_scenes([('model', read_scene(roots))], max_error=0.001)
+        written = parse_fbx(result.data)
+        front = read_scene(written).meshes[0]
+        self.assertEqual(len(front.triangles), 6)
+        origin = result.report['origin']
+        survey = array('d', (c + origin[i % 3] for i, c in enumerate(front.positions)))
+        for actual, expected in zip(front.uvs, corner_uvs(survey, front.triangles, place)):
+            self.assertAlmostEqual(actual, expected, places=12)
+        self.assertEqual(self.contents(written), {'wall.png': picture, 'rough.png': rough})
+        self.assertEqual(result.report['textures'], {'written': 2, 'bytes': len(picture) + len(rough), 'left_out': 0})
+        self.assertEqual([(e['texture_coordinates'], e['texture_slide'] < 1e-9) for e in result.report['objects']], [(True, True)])
+
+    def test_pictures_beyond_the_budget_or_laid_with_a_transform_are_left_out(self):
+        roots, place, picture, rough = self.textured()
+        build = lambda max_bytes=None: export_scenes([('model', read_scene(roots))], max_error=0.001, max_bytes=max_bytes)
+        whole = build()
+        self.assertEqual(build(len(whole.data)).data, whole.data)
+        # No room for any picture: the geometry is written whole, without them.
+        bare = build(len(whole.data) - len(picture) - len(rough))
+        self.assertEqual(self.contents(parse_fbx(bare.data)), {})
+        self.assertEqual(bare.report['textures'], {'written': 0, 'bytes': 0, 'left_out': 2})
+        self.assertEqual(read_scene(parse_fbx(bare.data)).meshes[0].uvs, read_scene(parse_fbx(whole.data)).meshes[0].uvs)
+        self.assertEqual([m.textures for mesh in bare.meshes for m in mesh.materials], [()])
+        # Room for one: the colour picture stays although the other one is smaller.
+        with mock.patch('model_generator.npm_export.PICTURE_NODES', 1000):
+            result = build(len(bare.data) + len(picture) + 1000)
+        self.assertEqual(self.contents(parse_fbx(result.data)), {'wall.png': picture})
+        self.assertEqual(result.report['textures'], {'written': 1, 'bytes': len(picture), 'left_out': 1})
+        self.assertLessEqual(len(result.data), len(bare.data) + len(picture) + 1000)
+        objects = next(n for n in roots if n.name == 'Objects')
+        texture = next(n for n in objects.children if n.name == 'Texture')
+        texture.child('Properties70').children.append(Node('P', ['Scaling', 'Vector', '', 'A', 2.0, 2.0, 1.0], []))
+        result = export_scenes([('model', read_scene(roots))], max_error=0.001)
+        self.assertEqual(self.contents(parse_fbx(result.data)), {'rough.png': rough})
+        self.assertEqual(result.report['textures']['left_out'], 1)
+        # The triangles keep their coordinates even when a picture is gone.
+        self.assertTrue(result.report['objects'][0]['texture_coordinates'])
+
+    def test_source_path_of_a_picture_is_reduced_to_its_file_name(self):
+        roots, place, picture, rough = self.textured()
+        objects = next(n for n in roots if n.name == 'Objects')
+        for video, path in zip((n for n in objects.children if n.name == 'Video'),
+                               ('C:\\legacy\\site.fbm\\tex.png', 'other/tex.png')):
+            video.child('RelativeFilename').props[0] = path
+        result = export_scenes([('model', read_scene(roots))], max_error=0.001)
+        # Two files of one name in different folders stay two files.
+        self.assertEqual(self.contents(parse_fbx(result.data)), {'tex.png': picture, 'tex 2.png': rough})
+        # A material without a stated slot on the triangles is not written, nor is its picture.
+        bare = export_scenes([('model', read_scene(parse_fbx(scene_bytes(axes=True))))])
+        self.assertEqual(bare.report['textures'], {'written': 0, 'bytes': 0, 'left_out': 0})
+        self.assertFalse(bare.report['objects'][0]['texture_coordinates'])
 
     def test_scenes_in_shared_coordinates_become_one_file_without_moving(self):
         ground_mesh = ExportMesh('Ground', *mesh(*sheet(10, 10, lambda i, j: (9400 + i * 8.0, 3700 + j * 8.0, 130.0))),
