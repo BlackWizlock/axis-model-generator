@@ -1,10 +1,16 @@
+from array import array
 import unittest
+from unittest import mock
 from dataclasses import replace
 
 from fixtures.builders import scene_bytes
 from model_generator.fbx_binary import Node, parse_fbx
 from model_generator.limits import Limits, ReadError
 from model_generator.fbx_scene import read_scene
+from functools import partial
+
+# The tests of this file read the texture coordinates with the scene.
+plain_scene, read_scene = read_scene, partial(read_scene, unwrapping=True)
 
 
 def placed(roots):
@@ -334,6 +340,88 @@ class PolygonTests(unittest.TestCase):
         mesh = read_scene(self.quad(materials=(1, 0))).meshes[0]
         self.assertEqual(tuple(mesh.triangles), (0, 1, 2, 0, 2, 3, 0, 3, 4))
         self.assertEqual(tuple(mesh.material_indices), (1, 1, 0))
+
+    def unwrapped(self, mapping='ByPolygonVertex', reference='IndexToDirect', pairs=7, index=(6, 5, 4, 3, 2, 1, 0)):
+        roots = self.quad()
+        layer = [Node('MappingInformationType', [mapping], []), Node('ReferenceInformationType', [reference], []),
+                 Node('UV', [array('d', (c for k in range(pairs) for c in (k / 10, k / 100)))], [])]
+        if index is not None:
+            layer.append(Node('UVIndex', [array('i', index)], []))
+        roots[1].children[0].children.append(Node('LayerElementUV', [0], layer))
+        return roots
+
+    def pairs(self, mesh):
+        return [round(u * 10) for u in mesh.uvs[::2]]
+
+    def test_texture_coordinates_follow_every_corner_of_the_fan(self):
+        mesh = read_scene(self.unwrapped()).meshes[0]
+        self.assertEqual(tuple(mesh.triangles), (0, 1, 2, 0, 2, 3, 0, 3, 4))
+        # The quad holds places 0..3 of the index list, the triangle places 4..6.
+        self.assertEqual(self.pairs(mesh), [6, 5, 4, 6, 4, 3, 2, 1, 0])
+        self.assertEqual(list(mesh.uvs[1::2]), [u / 10 for u in mesh.uvs[::2]])
+        direct = read_scene(self.unwrapped(reference='Direct', index=None)).meshes[0]
+        self.assertEqual(self.pairs(direct), [0, 1, 2, 0, 2, 3, 4, 5, 6])
+        vertex = read_scene(self.unwrapped('ByVertice', 'Direct', 5, None)).meshes[0]
+        self.assertEqual(self.pairs(vertex), list(vertex.triangles))
+        named = read_scene(self.unwrapped('ByVertice', index=(4, 3, 2, 1, 0))).meshes[0]
+        self.assertEqual(self.pairs(named), [4 - i for i in named.triangles])
+
+    def test_texture_coordinates_turn_with_a_reflected_mesh(self):
+        roots = self.unwrapped()
+        model_properties(roots).append(property_node('Lcl Scaling', [-1, 1, 1]))
+        mesh = read_scene(roots).meshes[0]
+        self.assertEqual(tuple(mesh.triangles), (0, 2, 1, 0, 3, 2, 0, 4, 3))
+        self.assertEqual(self.pairs(mesh), [6, 4, 5, 6, 3, 4, 2, 0, 1])
+
+    def test_texture_coordinates_that_cannot_be_placed_are_left_out(self):
+        self.assertEqual(len(read_scene(self.quad()).meshes[0].uvs), 0)
+        cases = [dict(mapping='ByPolygon'), dict(reference='Index'), dict(index=(6, 5, 4, 3, 2, 1, 7)),
+                 dict(index=(6, 5, 4, 3, 2, 1, -1)), dict(index=(6, 5, 4)), dict(reference='Direct', pairs=6, index=None),
+                 dict(mapping='ByVertice', reference='Direct', pairs=4, index=None)]
+        for case in cases:
+            with self.subTest(case=case):
+                mesh = read_scene(self.unwrapped(**case)).meshes[0]
+                self.assertEqual((len(mesh.uvs), len(mesh.triangles)), (0, 9))
+        roots = self.unwrapped()
+        roots[1].children[0].children[-1].child('UV').props[0][3] = float('inf')
+        self.assertEqual(len(read_scene(roots).meshes[0].uvs), 0)
+
+    def test_texture_coordinates_cost_the_corners_not_the_length_of_the_layer(self):
+        # A pair no corner uses is never looked at, however long the layer is.
+        roots = self.unwrapped(pairs=8)
+        roots[1].children[0].children[-1].child('UV').props[0][15] = float('nan')
+        self.assertEqual(self.pairs(read_scene(roots).meshes[0]), [6, 5, 4, 6, 4, 3, 2, 1, 0])
+
+    def test_reading_a_scene_does_not_look_at_the_texture_layers(self):
+        from model_generator import fbx_scene
+        with mock.patch.object(fbx_scene, '_uv_layer', wraps=fbx_scene._uv_layer) as found:
+            scene = plain_scene(self.unwrapped())
+        self.assertEqual((found.call_count, len(scene.meshes[0].uvs)), (0, 0))
+        self.assertEqual(self.pairs(fbx_scene.unwrap(scene).meshes[0]), [6, 5, 4, 6, 4, 3, 2, 1, 0])
+
+    def test_texture_layer_is_found_once_for_all_placements_of_a_geometry(self):
+        from model_generator import fbx_scene
+        roots = self.unwrapped()
+        objects = next(n for n in roots if n.name == 'Objects')
+        links = next(n for n in roots if n.name == 'Connections')
+        geometry = next(n for n in objects.children if n.name == 'Geometry')
+        model = next(n for n in objects.children if n.name == 'Model')
+        for extra in range(3):
+            objects.children.append(Node('Model', [9000 + extra, *model.props[1:]], model.children))
+            links.children += [Node('C', ['OO', geometry.props[0], 9000 + extra], []), Node('C', ['OO', 9000 + extra, 0], [])]
+        with mock.patch.object(fbx_scene, '_uv_layer', wraps=fbx_scene._uv_layer) as found:
+            meshes = read_scene(roots).meshes
+        self.assertEqual((len(meshes), found.call_count, {len(m.uvs) for m in meshes}), (4, 1, {18}))
+
+    def test_texture_coordinates_past_the_array_budget_are_left_out_not_refused(self):
+        from dataclasses import replace
+        from model_generator.limits import Limits
+        geometry = read_scene(self.unwrapped()).meshes[0]
+        room = (15 + 7) * 8
+        kept = read_scene(self.unwrapped(), replace(Limits(), fbx_array_bytes=room + len(geometry.uvs) * 8)).meshes[0]
+        self.assertEqual(len(kept.uvs), 18)
+        bare = read_scene(self.unwrapped(), replace(Limits(), fbx_array_bytes=room + len(geometry.uvs) * 8 - 1)).meshes[0]
+        self.assertEqual((len(bare.uvs), tuple(bare.triangles)), (0, tuple(geometry.triangles)))
 
     def test_concave_degenerate_and_short_polygons_are_refused(self):
         for indices in ((0, 1, 4, 2, -4), (0, 1, 0, -2), (0, -2)):

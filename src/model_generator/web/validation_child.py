@@ -17,8 +17,20 @@ from .reporting import sanitize_report
 from model_generator.package_reader import read_package_bytes
 from model_generator.package_scene import inspect_package_scene
 from model_generator.package_manifest import PackageError
-from .preview import PreviewError,PreviewLimits,build_preview,write_preview
-from model_generator.reduced_model import build_reduced_model
+from .preview import PreviewError,PreviewLimits,build_mesh_preview,build_preview,write_preview
+from model_generator.reduced_model import REPORT_CPU_MARGIN, cpu_left, reduce_input, stopped_after
+from model_generator.simplify import OverBudget
+
+# The view of a reduced model is attempted only while the process has this
+# many seconds of its own processor limit left: the report must not be lost
+# to it. A process without a limit has nothing to protect.
+VIEW_CPU_RESERVE = 40.0
+
+
+def _view_time_left():
+    import resource, time
+    limit = resource.getrlimit(resource.RLIMIT_CPU)[0]
+    return limit == resource.RLIM_INFINITY or limit - time.process_time() >= VIEW_CPU_RESERVE
 
 
 @dataclass(frozen=True)
@@ -54,7 +66,7 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
         if kind == 'fbx':
             # Standalone FBX is never stored under the legacy ZIP transport name.
             if input_path.name != 'input.bin': raise ValueError('Unsafe child input')
-            preview_reason = 'preview_unsupported'
+        preview_reason = 'preview_unsupported'
         limits = Limits(input_bytes=settings.input_bytes, expanded_bytes=settings.expanded_bytes,
                         member_bytes=settings.member_bytes, fbx_array_bytes=64 * 1024**2)
         try:
@@ -63,13 +75,35 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
             # the scene reader cannot read gives no file and a stated reason.
             with input_path.open('rb') as stream: wire=stream.read(settings.input_bytes+1)
             if len(wire)>settings.input_bytes: raise ValueError('Input budget changed')
-            model,model_facts=build_reduced_model(wire,kind,limits)
+            model,model_facts,meshes=reduce_input(wire,kind,limits)
             del wire
             if model is not None:
                 model_path=settings.scratch/'model.fbx'
                 with model_path.open('xb') as stream:
                     stream.write(model); stream.flush()
                 del model
+                # The view shows the built file and nothing else; without the
+                # file there is nothing to show.
+                try:
+                    if not _view_time_left():
+                        raise PreviewError('preview_budget','No processor time left for the view')
+                    candidate=settings.scratch/'preview-input.json'
+                    # Short of the limit of the process the view is given up,
+                    # the report and the file stay.
+                    with stopped_after(cpu_left()-REPORT_CPU_MARGIN):
+                        write_preview(build_mesh_preview(meshes,settings.preview_limits),candidate,settings.preview_limits)
+                    preview_path=candidate
+                    preview_reason=None
+                except PreviewError as error:
+                    preview_reason=error.code
+                except OverBudget:
+                    candidate.unlink(missing_ok=True)
+                    preview_reason='preview_budget'
+                except MemoryError:
+                    preview_reason='preview_budget'
+            elif model_facts.get('reason')=='model_budget':
+                preview_reason='preview_budget'
+            del meshes
         except ReadError as error:
             sha = hashlib.sha256()
             with input_path.open('rb') as stream:

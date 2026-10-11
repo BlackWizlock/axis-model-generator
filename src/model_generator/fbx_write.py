@@ -1,8 +1,9 @@
 """Write triangle meshes as a binary FBX 7400 scene in metres, Z up.
 
 The writer states explicit units and axes, one model per mesh without any
-transform, and material slots with per-triangle assignments. It writes no
-normals, UVs, textures or animation. Output is deterministic.
+transform, material slots with per-triangle assignments, texture coordinates
+of every triangle corner and the pictures of the materials, embedded as PNG.
+It writes no normals or animation. Output is deterministic.
 """
 
 from array import array
@@ -22,10 +23,21 @@ FOOT_ID = bytes.fromhex('fabcab09d0c8d466b176fb831cf7267e')
 FOOT_MAGIC = bytes.fromhex('f85a8c6adef5d97eece90ce3758f290b')
 
 
+PNG = b'\x89PNG\r\n\x1a\n'
+
+
+@dataclass(frozen=True)
+class ExportTexture:
+    channel: str    # the material property the picture drives, as FBX names it: DiffuseColor
+    filename: str   # bare file name stated for the picture
+    content: bytes  # the PNG file, embedded in the scene
+
+
 @dataclass(frozen=True)
 class ExportMaterial:
     name: str
     color: tuple = None  # diffuse red, green, blue in 0..1, or None when unknown
+    textures: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -35,6 +47,7 @@ class ExportMesh:
     triangles: array         # vertex indices, three per triangle
     materials: tuple = ()
     material_indices: array = field(default_factory=lambda: array('i'))  # one slot per triangle, or empty
+    uvs: array = field(default_factory=lambda: array('d'))  # u, v of every triangle corner, or empty
 
 
 class _Long(int):
@@ -97,6 +110,7 @@ def _check(meshes):
         _reject('Object names must be printable and not empty')
     if len({mesh.name for mesh in meshes}) != len(meshes):
         _reject('Mesh names must be unique')
+    seen = set()
     for mesh in meshes:
         vertices, faces = len(mesh.positions) // 3, len(mesh.triangles) // 3
         if not vertices or len(mesh.positions) % 3 or not faces or len(mesh.triangles) % 3:
@@ -113,11 +127,29 @@ def _check(meshes):
             _reject('Triangle refers to a missing material slot')
         if len({m.name for m in mesh.materials}) != len(mesh.materials):
             _reject('Material slots of one mesh must have unique names')
+        if len(mesh.uvs) not in (0, faces * 6) or not all(math.isfinite(c) for c in mesh.uvs):
+            _reject('Texture coordinates must cover every triangle corner')
         for material in mesh.materials:
+            # Meshes share materials: each is looked at once.
+            if id(material) in seen:
+                continue
+            seen.add(id(material))
             color = material.color
             if color is not None and (len(color) != 3 or not all(isinstance(c, (int, float))
                                                                  and 0 <= c <= 1 for c in color)):
                 _reject('Material colour must be three values within 0..1')
+            for texture in material.textures:
+                if not (isinstance(texture.channel, str) and texture.channel.isascii()
+                        and texture.channel.replace('_', '').isalnum()):
+                    _reject('Texture channel must be a plain property name')
+                name = texture.filename
+                if (not isinstance(name, str) or not name.strip() or name != name.strip()
+                        or any(ord(c) < 32 or c in '/\\' for c in name)):
+                    _reject('Texture file name must be a bare printable name')
+                if not (isinstance(texture.content, bytes) and texture.content.startswith(PNG)):
+                    _reject('Texture content must be a PNG file')
+            if len({t.channel for t in material.textures}) != len(material.textures):
+                _reject('One material channel has two pictures')
 
 
 def write_fbx(meshes):
@@ -125,7 +157,7 @@ def write_fbx(meshes):
     meshes = tuple(meshes)
     _check(meshes)
     objects, links, next_id = [], [], 1_000_000
-    shared = {}
+    shared, videos, placed, named = {}, {}, {}, set()
     for mesh in meshes:
         geometry_id, model_id = _Long(next_id), _Long(next_id + 1)
         next_id += 2
@@ -133,15 +165,28 @@ def write_fbx(meshes):
         for last in range(2, len(indices), 3):
             indices[last] = -indices[last] - 1
         layers = []
+        if len(mesh.uvs):
+            # Equal pairs are written once and named by index at every corner.
+            known, pairs, corners = {}, array('d'), array('i')
+            for start in range(0, len(mesh.uvs), 2):
+                pair = (mesh.uvs[start], mesh.uvs[start + 1])
+                if pair not in known:
+                    known[pair] = len(known)
+                    pairs.extend(pair)
+                corners.append(known[pair])
+            layers.append(('LayerElementUV', (0,), (
+                ('Version', (101,)), ('Name', ('UVMap',)), ('MappingInformationType', ('ByPolygonVertex',)),
+                ('ReferenceInformationType', ('IndexToDirect',)), ('UV', (pairs,)), ('UVIndex', (corners,)))))
         if mesh.materials:
             # Without assignments every triangle uses the first slot of the mesh.
             slots = array('i', mesh.material_indices) or array('i', [0])
-            layers = [('LayerElementMaterial', (0,), (
-                          ('Version', (101,)), ('Name', ('',)),
-                          ('MappingInformationType', ('ByPolygon' if mesh.material_indices else 'AllSame',)),
-                          ('ReferenceInformationType', ('IndexToDirect',)), ('Materials', (slots,)))),
-                      ('Layer', (0,), (('Version', (100,)), ('LayerElement', (), (
-                          ('Type', ('LayerElementMaterial',)), ('TypedIndex', (0,))))))]
+            layers.append(('LayerElementMaterial', (0,), (
+                ('Version', (101,)), ('Name', ('',)),
+                ('MappingInformationType', ('ByPolygon' if mesh.material_indices else 'AllSame',)),
+                ('ReferenceInformationType', ('IndexToDirect',)), ('Materials', (slots,)))))
+        if layers:
+            layers.append(('Layer', (0,), (('Version', (100,)), *(
+                ('LayerElement', (), (('Type', (layer[0],)), ('TypedIndex', (0,)))) for layer in layers))))
         objects.append(('Geometry', (geometry_id, _label(mesh.name, 'Geometry'), 'Mesh'), (
             ('Vertices', (array('d', mesh.positions),)), ('PolygonVertexIndex', (indices,)),
             ('GeometryVersion', (124,)), *layers)))
@@ -154,9 +199,15 @@ def write_fbx(meshes):
         links += [('OO', model_id, _Long(0)), ('OO', geometry_id, model_id)]
         for material in mesh.materials:
             # One material object serves every mesh that names the same material.
+            # A material met again as the same object is not compared again:
+            # comparing walks all its pictures.
+            if id(material) in placed:
+                links.append(('OO', placed[id(material)], model_id))
+                continue
             if material not in shared:
-                if any(known.name == material.name for known in shared):
+                if material.name in named:
                     _reject('One material name has two definitions')
+                named.add(material.name)
                 shared[material] = _Long(next_id)
                 next_id += 1
                 color = () if material.color is None else (
@@ -164,8 +215,31 @@ def write_fbx(meshes):
                 objects.append(('Material', (shared[material], _label(material.name, 'Material'), ''), (
                     ('Version', (102,)), ('ShadingModel', ('lambert',)), ('MultiLayer', (0,)),
                     _properties(*color))))
+                for texture in material.textures:
+                    # One embedded file serves every material that shows it.
+                    if texture.filename not in videos:
+                        videos[texture.filename] = (_Long(next_id), texture.content)
+                        next_id += 1
+                        objects.append(('Video', (videos[texture.filename][0], _label(texture.filename, 'Video'), 'Clip'), (
+                            ('Type', ('Clip',)),
+                            _properties(('Path', 'KString', 'Url', '', texture.filename)),
+                            ('UseMipMap', (0,)), ('Filename', (texture.filename,)),
+                            ('RelativeFilename', (texture.filename,)), ('Content', (texture.content,)))))
+                    video_id, content = videos[texture.filename]
+                    if content != texture.content:
+                        _reject('One texture file name has two contents')
+                    texture_id, label = _Long(next_id), _label(f'{material.name} {texture.channel}', 'Texture')
+                    next_id += 1
+                    objects.append(('Texture', (texture_id, label, ''), (
+                        ('Type', ('TextureVideoClip',)), ('Version', (202,)), ('TextureName', (label,)),
+                        ('Media', (_label(texture.filename, 'Video'),)), ('FileName', (texture.filename,)),
+                        ('RelativeFilename', (texture.filename,)),
+                        _properties(('UseMaterial', 'bool', '', '', 1)))))
+                    links += [('OO', video_id, texture_id), ('OP', texture_id, shared[material], texture.channel)]
+            placed[id(material)] = shared[material]
             links.append(('OO', shared[material], model_id))
-    counts = {kind: sum(o[0] == kind for o in objects) for kind in ('Model', 'Geometry', 'Material')}
+    counts = {kind: sum(o[0] == kind for o in objects)
+              for kind in ('Model', 'Geometry', 'Material', 'Texture', 'Video')}
     roots = [
         ('FBXHeaderExtension', (), (('FBXHeaderVersion', (1003,)), ('FBXVersion', (7400,)),
                                     ('Creator', ('model-generator',)))),

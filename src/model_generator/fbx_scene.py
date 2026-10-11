@@ -12,7 +12,7 @@ retained for later processing; nothing is exported or simplified here.
 
 from array import array
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 import math
 
 from .fbx_inspection import inspect_fbx
@@ -28,6 +28,7 @@ class FbxMesh:
     material_ids: tuple
     material_indices: array
     mirrored: bool = False
+    uvs: array = field(default_factory=lambda: array('d'))  # u, v of every triangle corner, or empty
 
 
 @dataclass(frozen=True)
@@ -194,10 +195,12 @@ def _axes(settings):
     return tuple(matrix)
 
 
-def _triangulate(vertices, indices):
-    """Triangles and the triangle count of each polygon; convex polygons become a fan."""
-    triangles, counts, polygon = array('I'), array('I'), []
-    for encoded in indices:
+def _triangulate(vertices, indices, placed=False):
+    """Triangles, the triangle count of each polygon and, when `placed`, the
+    place of every triangle corner in the index list; convex polygons become
+    a fan."""
+    triangles, counts, places, polygon, first = array('I'), array('I'), array('I'), [], 0
+    for place, encoded in enumerate(indices):
         polygon.append(-encoded - 1 if encoded < 0 else encoded)
         if encoded >= 0:
             continue
@@ -224,9 +227,56 @@ def _triangulate(vertices, indices):
                     _reject('Concave polygon is unsupported')
         for i in range(1, len(polygon) - 1):
             triangles.extend((polygon[0], polygon[i], polygon[i + 1]))
+            if placed:
+                places.extend((first, first + i, first + i + 1))
         counts.append(len(polygon) - 2)
-        polygon = []
-    return triangles, counts
+        polygon, first = [], place + 1
+    return triangles, counts, places
+
+
+def _uv_layer(geometry):
+    """Mapping, reference, coordinates and index of the first UV layer, or None."""
+    layers = [n for n in geometry.children if n.name == 'LayerElementUV']
+    if not layers:
+        return None
+    layer = min(layers, key=lambda n: n.props[0] if n.props and type(n.props[0]) is int else 0)
+    found = {}
+    for node in layer.children:
+        if node.name in ('MappingInformationType', 'ReferenceInformationType', 'UV', 'UVIndex'):
+            found.setdefault(node.name, node.props[0] if len(node.props) == 1 else None)
+    return tuple(found.get(name) for name in ('MappingInformationType', 'ReferenceInformationType', 'UV', 'UVIndex'))
+
+
+def _corner_uvs(layer, triangles, places):
+    """u and v of every triangle corner from the UV layer of `_uv_layer`, or nothing.
+
+    A layer that cannot be placed on the corners without a guess is left out:
+    the mesh then carries no texture coordinates. The work is bounded by the
+    corners of the mesh, never by the length of the layer: one geometry may
+    be placed many times, so the layer is found once per geometry.
+    """
+    if layer is None:
+        return array('d')
+    mapping, reference, uv, index = layer
+    if not isinstance(uv, array) or uv.typecode not in 'df' or len(uv) % 2:
+        return array('d')
+    if mapping == 'ByPolygonVertex':
+        keys = places
+    elif mapping in ('ByVertice', 'ByVertex', 'ByControlPoint'):
+        keys = triangles
+    else:
+        return array('d')
+    if reference == 'IndexToDirect':
+        if not isinstance(index, array) or index.typecode not in 'il' or (len(keys) and max(keys) >= len(index)):
+            return array('d')
+        keys = array(index.typecode, (index[key] for key in keys))
+    elif reference != 'Direct':
+        return array('d')
+    pairs = len(uv) // 2
+    if any(not 0 <= key < pairs for key in keys):
+        return array('d')
+    placed = array('d', (uv[key * 2 + axis] for key in keys for axis in (0, 1)))
+    return placed if all(map(math.isfinite, placed)) else array('d')
 
 
 def _material_indices(geometry, slots, faces):
@@ -255,12 +305,15 @@ def _material_indices(geometry, slots, faces):
     return array('i', indices)
 
 
-def read_scene(roots, limits=None):
+def read_scene(roots, limits=None, unwrapping=False):
     """Return placed geometry in metres, Z-up, without guessing units or recentering.
 
+    The texture coordinates are read only with `unwrapping`, by `unwrap`.
+
     Call parse_fbx with the same Limits before this function for wire budgets.
-    Material slots follow connection order; their source layers and UV records
-    are retained unchanged in source_nodes. No normative readiness is implied.
+    Material slots follow connection order; their source layers are retained
+    unchanged in source_nodes. Texture coordinates of the first UV layer come
+    with every triangle corner. No normative readiness is implied.
     """
     limits = limits or Limits()
     authoritative = {'Properties70', 'Vertices', 'PolygonVertexIndex',
@@ -370,7 +423,7 @@ def read_scene(roots, limits=None):
                 positions.append(value)
                 minimum[axis] = min(minimum[axis], value)
                 maximum[axis] = max(maximum[axis], value)
-        triangles, counts = _triangulate(vertices, indices)
+        triangles, counts, _ = _triangulate(vertices, indices)
         mirrored = orientation < 0
         if mirrored:
             # A reflection reverses the facing; swap two corners to keep it.
@@ -384,4 +437,41 @@ def read_scene(roots, limits=None):
         placed.add(geometry_id)
     if placed != {i for i, n in by_id.items() if n.name == 'Geometry'} or not meshes:
         _reject('Every geometry must have a placement')
-    return FbxScene(tuple(meshes), (tuple(minimum), tuple(maximum)), unit, tuple(roots))
+    scene = FbxScene(tuple(meshes), (tuple(minimum), tuple(maximum)), unit, tuple(roots))
+    return unwrap(scene, limits) if unwrapping else scene
+
+
+def unwrap(scene, limits=None):
+    """The scene with the texture coordinates of its meshes, read from its source.
+
+    Reading the scene costs nothing for them: this is the only place that
+    looks at the UV layers, so a caller decides whether and when to pay.
+    The coordinates share the array budget with the placed geometry and never
+    refuse an input: a mesh past the budget, or with a layer that cannot be
+    placed without a guess, goes without them.
+    """
+    limits = limits or Limits()
+    objects = next(n for n in scene.source_nodes if n.name == 'Objects')
+    geometries = {n.props[0]: n for n in objects.children if n.name == 'Geometry'}
+    def arrays(mesh):
+        geometry = geometries[mesh.geometry_id]
+        return geometry.child('Vertices').props[0], geometry.child('PolygonVertexIndex').props[0]
+    room = limits.fbx_array_bytes - sum(len(part) * 8 for mesh in scene.meshes for part in arrays(mesh))
+    layers, meshes = {}, []
+    for mesh in scene.meshes:
+        if mesh.geometry_id not in layers:
+            layers[mesh.geometry_id] = _uv_layer(geometries[mesh.geometry_id])
+        layer, size = layers[mesh.geometry_id], len(mesh.triangles) * 16
+        if layer is None or size > room:
+            meshes.append(mesh)
+            continue
+        triangles, _, places = _triangulate(*arrays(mesh), placed=True)
+        uvs = _corner_uvs(layer, triangles, places)
+        del triangles, places
+        if mesh.mirrored:
+            # The corners were swapped with the facing; the coordinates follow.
+            for start in range(0, len(uvs), 6):
+                uvs[start + 2:start + 4], uvs[start + 4:start + 6] = uvs[start + 4:start + 6], uvs[start + 2:start + 4]
+        room -= len(uvs) * 8
+        meshes.append(replace(mesh, uvs=uvs))
+    return replace(scene, meshes=tuple(meshes))

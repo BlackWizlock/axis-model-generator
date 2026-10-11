@@ -14,7 +14,7 @@ class InputFormatsTests(unittest.TestCase):
             self.assertEqual(row['extensions'], ['.' + kind if kind not in {'zip-fbx', 'portable-package'} else '.zip'])
             self.assertEqual(row['upload'], active)
             self.assertEqual(row['diagnostics'], active)
-            self.assertEqual(row['preview'], kind == 'portable-package')
+            self.assertEqual(row['preview'], active)
             self.assertFalse(row['generation'])
             self.assertEqual(row['reason'], None if active else 'engine_unavailable')
             if active:

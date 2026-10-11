@@ -24,7 +24,7 @@ async function appHarness(overrides={}) {
  ApiError:class extends Error{},artifactPath:()=>'/artifact',setCsrfToken(){},guestSession:async()=>{},UPLOAD_CAP:1000,uploadStageText:x=>x,
  getJobs:async()=>({jobs:[],nextCursor:null}),getJob:async id=>({id,state:'completed',inputHash:'b'.repeat(64)}),createJob:async()=>({id:'a'.repeat(32)}),cancelJob(){},deleteJob(){},
  startPolling:()=>{const poller={stopped:false,stop(){this.stopped=true;},refresh:async()=>{}};pollers.push(poller);return poller;},statusText:x=>x,terminal:new Set(['completed']),jobAxes:()=>[],jobArtifacts:()=>[],
- getChecks:async()=>({attempt:1,checks:[],coverage:{}}),renderChecks(){},completionText:()=>'',runSourceLabel:()=> 'Источник',mountPreview:()=>({dispose(){disposed++;},reset(){}}),previewReason:()=>'',uploadFile:async()=>({id:'upload'}),...overrides};
+ getChecks:async()=>({attempt:1,checks:[],coverage:{}}),renderChecks(){},completionText:()=>'',runSourceLabel:()=> 'Источник',mountPreview:()=>({dispose(){disposed++;},reset(){}}),apiBytes:async()=>new Uint8Array(0),readModel:async()=>null,MODEL_MAX_BYTES:16*1024*1024,previewReason:()=>'',uploadFile:async()=>({id:'upload'}),...overrides};
  vm.createContext(context);const source=await readFile(new URL('../src/app.js',import.meta.url),'utf8');vm.runInContext(source.replace(/^import .*;$/gm,''),context);await settle();
  return {nodes,get,events,pollers,context,disposed:()=>disposed};
 }
@@ -113,4 +113,28 @@ test('reduced model link appears only with its file and is cleared with the sele
  built=false;await vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
  assert.equal(app.get('model-download').hidden,true);assert.equal(app.get('model-download').getAttribute('href'),undefined);
  assert.match(app.get('report-summary').textContent,/не собрана/);
+});
+test('reduced model summary states what happened to the textures',async()=>{
+ const artifacts=[{id:'r'.repeat(32),kind:'report'},{id:'m'.repeat(32),kind:'model'}];let textures={written:8,bytes:2106702,left_out:0};
+ const app=await appHarness({jobArtifacts:()=>artifacts,artifactPath:(job,item)=>`/artifact/${item}`,
+  api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};
+   return {findings:[],reduced_model:{status:'built',input_triangles:900,output_triangles:120,textures}};}});
+ for(const [facts,expected] of [[{written:8,left_out:0},/перенесено файлов текстур: 8\./],[{written:2,left_out:1},/перенесено файлов текстур: 2, не перенесено: 1\./],
+   [{written:0,left_out:3},/текстуры не перенесены: 3\./],[{written:0,left_out:0},/текстур у материалов нет\./],['not exported',/текстуры не переносятся\./]]){
+  textures=facts;await vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
+  assert.match(app.get('report-summary').textContent,expected);
+ }
+});
+test('FBX view takes its pictures from the model file and falls back to the neutral view',async()=>{
+ const artifacts=[{id:'p'.repeat(32),kind:'preview'},{id:'m'.repeat(32),kind:'model'}];let mounted,asked=[],kind='fbx',readable=true;const surfaces={surfaces:[{}]};
+ const app=await appHarness({jobArtifacts:()=>artifacts,artifactPath:(job,id)=>`/artifact/${id}`,getJob:async id=>({id,state:'completed',inputKind:kind,inputHash:'b'.repeat(64)}),
+  api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};return {provenance:kind==='portable-package'?'uploaded_package':'reduced_model'};},
+  apiBytes:async(path,limit)=>{asked.push([path,limit]);return new Uint8Array(4);},readModel:async()=>{if(!readable)throw new Error('Invalid model file');return surfaces;},
+  mountPreview:(container,document,model)=>{mounted=model;return {textured:model?2:0,dispose(){},reset(){}};}});
+ const open=()=>vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
+ await open();assert.equal(mounted,surfaces);assert.deepEqual(asked,[[`/artifact/${'m'.repeat(32)}`,16*1024*1024]]);
+ assert.match(app.get('preview-message').textContent,/с текстурами исходника/);assert.doesNotMatch(app.get('preview-message').textContent,/Нейтральные/);assert.equal(app.get('viewer-materials').textContent,'Текстуры исходника');
+ readable=false;await open();assert.equal(mounted,null);assert.equal(app.get('viewer-materials').textContent,'Нейтральные материалы');assert.match(app.get('preview-message').textContent,/Нейтральные материалы, текстуры не показаны/);
+ // Пакет показывает свою проверенную геометрию и файл модели не запрашивает.
+ readable=true;kind='portable-package';asked=[];await open();assert.equal(mounted,null);assert.deepEqual(asked,[]);assert.match(app.get('preview-message').textContent,/геометрия вашего пакета/);
 });

@@ -163,7 +163,7 @@ def run_child(settings, scratch, kind, cancelled, *, descriptor_version: int = 0
                 raise ValueError
             preview=message['previewInput']
             if preview is not None:
-                if kind!='portable-package' or message['failureCode'] is not None or set(preview)!={'kind','bytes','sha256'} or preview['kind']!='preview' or type(preview['bytes']) is not int or not 1<=preview['bytes']<=settings.preview_max_bytes:
+                if kind not in {'portable-package','zip-fbx','fbx'} or message['failureCode'] is not None or set(preview)!={'kind','bytes','sha256'} or preview['kind']!='preview' or type(preview['bytes']) is not int or not 1<=preview['bytes']<=settings.preview_max_bytes:
                     raise ValueError
                 with _root(settings) as (root,descriptor):
                     _,digest=_input(root,descriptor,scratch/'preview-input.json',preview_limits)

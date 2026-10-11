@@ -24,6 +24,10 @@ _LIMITATIONS = [
     'Neutral display preview only; UV, materials and source silhouette fidelity are not verified.',
     'Float32 display precision does not prove global coordinates, export fidelity or regulatory compliance.',
 ]
+_MODEL_LIMITATIONS = [
+    'Neutral display of the reduced model built from the uploaded FBX; materials and textures are not shown.',
+    'Positions are rounded to Float32 for display; the downloadable model keeps its own precision.',
+]
 
 
 class PreviewError(ValueError):
@@ -119,7 +123,7 @@ def validate_preview(document: dict, limits: PreviewLimits) -> dict:
     if type(document['schemaVersion']) is not int or document['schemaVersion'] != 1:
         _fail('Unknown preview schema')
     if (type(document['provenance']) is not str or
-            document['provenance'] not in {'uploaded_package', 'synthetic'}):
+            document['provenance'] not in {'uploaded_package', 'reduced_model', 'synthetic'}):
         _fail('Unknown preview provenance')
     if document['coordinates'] != 'processing-metres-rebased':
         _fail('Unsupported preview coordinate system')
@@ -350,6 +354,50 @@ def build_preview(package: PackageData, inspection: SceneInspection, limits: Pre
         return _build_preview(package, inspection, limits)
     except (PackageError, KeyError, TypeError, IndexError, OverflowError, struct.error, RecursionError):
         _fail('Inspected geometry is unsupported or inconsistent')
+
+
+def build_mesh_preview(meshes, limits: PreviewLimits) -> dict:
+    """Display document for the meshes of a reduced model, in their written order.
+
+    Every coordinate is rounded to Float32 after rebasing and written with
+    nine significant digits: the view shows the built file within display
+    precision and claims nothing about the source.
+    """
+    meshes = [mesh for mesh in meshes if len(mesh.triangles)]
+    vertices = triangles = 0
+    for mesh in meshes:
+        vertices += _count(len(mesh.positions) // 3, limits.vertices)
+        triangles += _count(len(mesh.triangles) // 3, limits.triangles)
+        _count(vertices, limits.vertices)
+        _count(triangles, limits.triangles)
+    if not vertices:
+        _fail('No geometry to display')
+    try:
+        low = [min(min(mesh.positions[axis::3]) for mesh in meshes) for axis in range(3)]
+        high = [max(max(mesh.positions[axis::3]) for mesh in meshes) for axis in range(3)]
+        origin = [_number(a / 2 + b / 2) for a, b in zip(low, high)]
+        positions, indices = [], []
+        single = struct.Struct('<f')
+        for mesh in meshes:
+            offset, count = len(positions) // 3, len(mesh.positions) // 3
+            for n, value in enumerate(mesh.positions):
+                # Nine significant digits name a Float32 value; the full
+                # double of the same value would be twice as long on the wire.
+                positions.append(float(format(single.unpack(single.pack(value - origin[n % 3]))[0], '.9g')))
+            for index in mesh.triangles:
+                if not 0 <= index < count:
+                    _fail('Triangle index outside its mesh')
+                indices.append(offset + index)
+    except (OverflowError, struct.error, TypeError, ValueError) as error:
+        if isinstance(error, PreviewError):
+            raise
+        _fail('Reduced geometry is outside display range', 'preview_roundtrip_error')
+    document = {'schemaVersion': 1, 'provenance': 'reduced_model',
+                'coordinates': 'processing-metres-rebased', 'origin': origin,
+                'bounds': _bounds(positions), 'positions': positions, 'indices': indices,
+                'vertexCount': vertices, 'triangleCount': triangles,
+                'limitations': list(_MODEL_LIMITATIONS)}
+    return validate_preview(document, limits)
 
 
 def build_synthetic_demo() -> dict:
