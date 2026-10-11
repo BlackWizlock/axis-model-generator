@@ -1,7 +1,7 @@
 """Public input capabilities must match accepted runtime adapters."""
 import unittest
 
-from model_generator.input_formats import public_formats, require_diagnostics
+from model_generator.input_formats import DESCRIPTOR_ONLY, public_formats, require_diagnostics
 
 
 class InputFormatsTests(unittest.TestCase):
@@ -10,8 +10,8 @@ class InputFormatsTests(unittest.TestCase):
         self.assertEqual(set(rows), {'zip-fbx', 'portable-package', 'fbx',
             'ifc', 'glb', 'gltf', 'obj', 'rvt', 'dwg', 'skp', '3dm'})
         for kind, row in rows.items():
-            active = kind in {'zip-fbx', 'portable-package'}
-            self.assertEqual(row['extensions'], ['.zip' if active else '.' + kind])
+            active = kind in {'zip-fbx', 'portable-package', 'fbx'}
+            self.assertEqual(row['extensions'], ['.' + kind if kind not in {'zip-fbx', 'portable-package'} else '.zip'])
             self.assertEqual(row['upload'], active)
             self.assertEqual(row['diagnostics'], active)
             self.assertEqual(row['preview'], kind == 'portable-package')
@@ -35,3 +35,6 @@ class InputFormatsTests(unittest.TestCase):
         self.assertTrue(fresh[0]['diagnostics'])
         self.assertEqual(fresh[0]['extensions'], ['.zip'])
         require_diagnostics('zip-fbx')
+
+    def test_standalone_fbx_has_no_legacy_transport(self):
+        self.assertEqual(DESCRIPTOR_ONLY, {'fbx'})

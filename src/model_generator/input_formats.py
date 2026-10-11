@@ -6,16 +6,18 @@ _EXTENSIONS = (
     ('gltf', ('.gltf',)), ('obj', ('.obj',)), ('rvt', ('.rvt',)),
     ('dwg', ('.dwg',)), ('skp', ('.skp',)), ('3dm', ('.3dm',)),
 )
+# Standalone FBX has no legacy transport name: it exists only as descriptor v1.
+_ACCEPTED = frozenset({'zip-fbx', 'portable-package', 'fbx'})
+DESCRIPTOR_ONLY = frozenset({'fbx'})
 
 
 def public_formats() -> list[dict]:
     """Return fresh rows, without granting capabilities to planned adapters."""
     return [dict(id=kind, extensions=list(extensions),
-        upload=kind in {'zip-fbx', 'portable-package'},
-        diagnostics=kind in {'zip-fbx', 'portable-package'},
+        upload=kind in _ACCEPTED, diagnostics=kind in _ACCEPTED,
         preview=kind == 'portable-package', generation=False,
-        reason=None if kind in {'zip-fbx', 'portable-package'}
-                    else 'engine_unavailable') for kind, extensions in _EXTENSIONS]
+        reason=None if kind in _ACCEPTED else 'engine_unavailable')
+        for kind, extensions in _EXTENSIONS]
 
 
 def require_diagnostics(kind: str) -> None:

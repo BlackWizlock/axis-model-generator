@@ -23,7 +23,7 @@ export function acceptsFile(file, kind, rows) {
   return !!row && row.extensions.some(extension => file.name.toLowerCase().endsWith(extension));
 }
 export function unavailableFormatText() {
-  return 'Выберите ZIP с FBX или переносимый пакет v1.';
+  return 'Выберите FBX, ZIP с FBX или переносимый пакет v1.';
 }
 export function rejectedFileText() {
   return unavailableFormatText();

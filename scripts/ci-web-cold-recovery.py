@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 from urllib.parse import urlsplit
 ROOT=Path(__file__).resolve().parents[1]
@@ -115,11 +116,30 @@ class Proof:
         self.project='mg-cold-proof-'+uuid.uuid4().hex[:10]
         self.runtime=ROOT/'_scratch'/self.project;self.runtime.mkdir(mode=0o700,parents=True)
         self.images=manifest['images'];self.source=source;self.phase='bootstrap';self.private=[]
-        self.compose=[];self.interrupt=None;self.interrupt_failure=''
+        self.compose=[];self.interrupt=None;self.interrupt_failure='';self.failure=''
     def run(self,args,*,data=None,check=True):
         value=subprocess.run(args,input=data,text=True,capture_output=True,timeout=180)
-        if check and value.returncode:raise RuntimeError('Own cold phase command failed')
+        if check and value.returncode:
+            error=RuntimeError('Own cold phase command failed')
+            error.cmd=args;error.returncode=value.returncode;error.stdout=value.stdout;error.stderr=value.stderr
+            raise error
         return value
+    def record(self,error):
+        # Names the failed command for the private log; close() redacts the values.
+        frames=traceback.extract_tb(error.__traceback__)[-8:]
+        lines=['Cold failure: '+type(error).__name__+'; phase='+self.phase,
+               'Trace: '+' > '.join(Path(frame.filename).name+':'+str(frame.lineno)+':'+frame.name for frame in frames)]
+        command=getattr(error,'cmd',None)
+        if command is None:lines.append('Message: '+str(error)[:2000])
+        else:
+            parts=[str(part) for part in (command if isinstance(command,(list,tuple)) else [command])]
+            lines.append('Command: '+' '.join(part if len(part)<=120 and '\n' not in part else '<'+str(len(part))+' chars>' for part in parts))
+            lines.append('Exit: '+str(getattr(error,'returncode',None)))
+            for name in ('stdout','stderr'):
+                value=getattr(error,name,None)
+                if isinstance(value,bytes):value=value.decode('utf-8','replace')
+                if value:lines.append(name+': '+value[-4096:].rstrip())
+        self.failure='\n'+'\n'.join(lines)+'\n'
     def interrupted_ready(self):
         line=self.interrupt.stdout.readline()
         if not line:
@@ -392,7 +412,7 @@ networks:
     def close(self,failed):
         if failed and self.compose:
             logs=self.run(self.compose+['logs','--no-color','--tail','500','api','worker','postgres'],check=False)
-            text='Cold failed phase: '+self.phase+'\n'+logs.stdout+logs.stderr+getattr(self,'interrupt_failure','')
+            text='Cold failed phase: '+self.phase+'\n'+logs.stdout+logs.stderr+getattr(self,'interrupt_failure','')+getattr(self,'failure','')
             secrets=self.runtime/'secrets/runtime'
             import http.cookies
             values=set(self.private)
@@ -442,6 +462,8 @@ def main():
         if previous is not None:
             attestation.update(legacy_source=previous['source_revision'],previous_images=release.manifest_image_ids(previous),previous_export_manifest_sha256=previous['_export_manifest_sha256'])
         path=args.images.parent/'cold-native-attestation.json';path.write_text(json.dumps(attestation,sort_keys=True)+'\n');path.chmod(0o600)
-    except Exception as error:raise SystemExit('Isolated cold proof failed in '+proof.phase+' ('+type(error).__name__+'); see private redacted log') from None
+    except Exception as error:
+        proof.record(error)
+        raise SystemExit('Isolated cold proof failed in '+proof.phase+' ('+type(error).__name__+'); see private redacted log') from None
     finally:proof.close(failed)
 if __name__=='__main__':main()

@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 main() {
+if [[ "$*" == "--task fbx_seed" ]]; then
+  bash "$(dirname "$0")/ci-fbx-seed.sh"
+  return
+fi
 if [[ "$*" == "--task all" ]]; then
   cd "$(dirname "$0")/.."
   python3 scripts/ci-web-all.py

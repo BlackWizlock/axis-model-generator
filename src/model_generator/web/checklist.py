@@ -9,8 +9,11 @@ from .security import ApiError
 
 
 def applicable(kind):
+    if kind=='fbx':
+        # One file: no archive phase, no package count or ground-name rules.
+        return ['input.fbx',*[key for key in RULE_TITLES if key.startswith(('fbx.','png.','profile.'))],*NOT_IMPLEMENTED]
     phases=['input.archive','input.fbx'] if kind=='zip-fbx' else ['input.package',*[key for key in PHASE_TITLES if key.startswith('scene.')]]
-    rules=[key for key in RULE_TITLES if (key.startswith(('zip.','fbx.','png.','profile.')) or key in {'package.fbx_count','package.ground','package.wrapper'})] if kind=='zip-fbx' else [key for key in RULE_TITLES if key.startswith('package.') and key not in {'package.fbx_count','package.ground','package.wrapper'}]
+    rules=[key for key in RULE_TITLES if ((key.startswith(('zip.','fbx.','png.','profile.')) and key!='fbx.scene') or key in {'package.fbx_count','package.ground','package.wrapper'})] if kind=='zip-fbx' else [key for key in RULE_TITLES if key.startswith('package.') and key not in {'package.fbx_count','package.ground','package.wrapper'}]
     return phases+rules+list(NOT_IMPLEMENTED)
 
 

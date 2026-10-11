@@ -7,6 +7,13 @@ test('unavailable native engines do not enter upload allowlist', () => {
   expect(acceptsFile({name:'MODEL.RVT'}, 'rvt', rows)).toBe(false);
   expect(acceptsFile({name:'MODEL.ZIP'}, 'zip-fbx', rows)).toBe(true);
 });
+test('standalone FBX is accepted only under its own kind', () => {
+  const rows = [{id:'zip-fbx', extensions:['.zip'], upload:true}, {id:'fbx', extensions:['.fbx'], upload:true}];
+  expect(allowedExtensions(rows)).toBe('.zip,.fbx');
+  expect(acceptsFile({name:'HOUSE.FBX'}, 'fbx', rows)).toBe(true);
+  expect(acceptsFile({name:'house.fbx'}, 'zip-fbx', rows)).toBe(false);
+  expect(acceptsFile({name:'house.zip'}, 'fbx', rows)).toBe(false);
+});
 
 import {api, ApiError} from '../src/api.js';
 const format = (changes={}) => ({id:'zip-fbx',extensions:['.zip'],upload:true,diagnostics:true,preview:false,generation:false,reason:null,...changes});

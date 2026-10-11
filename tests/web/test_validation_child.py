@@ -46,3 +46,28 @@ class NeutralInputTests(unittest.TestCase):
             self.assertNotEqual(result.report['coverage']['technical'], 'passed')
             self.assertTrue(any(finding['status'] == 'fail' for finding in result.report['findings']))
             self.assertEqual(result.report['input_sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
+
+    def test_standalone_fbx_uses_descriptor_transport_and_has_no_preview(self):
+        from fixtures.builders import scene_bytes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('input.bin', 'input.zip'):
+                (root / name).write_bytes(scene_bytes(axes=True))
+            result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
+            self.assertIsNone(result.preview_input_path)
+            self.assertEqual(result.failure_code, 'preview_unsupported')
+            states = {finding['rule_id']: finding['status'] for finding in result.report['findings']}
+            self.assertEqual(states['fbx.scene'], 'pass')
+            self.assertEqual(states['fbx.integrity'], 'pass')
+            self.assertNotIn('package.fbx_count', states)
+            with self.assertRaisesRegex(ValueError, 'Unsafe child input'):
+                validate_input(root / 'input.zip', 'fbx', ChildSettings(scratch=root))
+
+    def test_corrupt_standalone_fbx_is_not_success(self):
+        from fixtures.builders import scene_bytes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'input.bin').write_bytes(scene_bytes(axes=True)[:60])
+            result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
+            self.assertTrue(any(finding['status'] == 'fail' for finding in result.report['findings']))
+            self.assertEqual(result.report['files'][0]['read_status'], 'failed')
