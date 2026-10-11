@@ -18,6 +18,7 @@ from model_generator.package_reader import read_package_bytes
 from model_generator.package_scene import inspect_package_scene
 from model_generator.package_manifest import PackageError
 from .preview import PreviewError,PreviewLimits,build_preview,write_preview
+from model_generator.reduced_model import build_reduced_model
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class ValidationResult:
     preview_input_path: Path | None
     technical_failure: bool
     failure_code: str | None
+    model_path: Path | None = None
 
 
 def validate_input(input_path: Path, kind: str, settings: ChildSettings, observer=None) -> ValidationResult:
@@ -46,14 +48,28 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
         raise ValueError('Unsafe child input')
     preview_path=None
     preview_reason=None
+    model_path=None
+    model_facts=None
     if kind in {'zip-fbx', 'fbx'}:
         if kind == 'fbx':
             # Standalone FBX is never stored under the legacy ZIP transport name.
             if input_path.name != 'input.bin': raise ValueError('Unsafe child input')
             preview_reason = 'preview_unsupported'
+        limits = Limits(input_bytes=settings.input_bytes, expanded_bytes=settings.expanded_bytes,
+                        member_bytes=settings.member_bytes, fbx_array_bytes=64 * 1024**2)
         try:
-            report = (validate_fbx_path if kind == 'fbx' else validate_path)(input_path, Limits(input_bytes=settings.input_bytes, expanded_bytes=settings.expanded_bytes,
-                                                    member_bytes=settings.member_bytes, fbx_array_bytes=64 * 1024**2), observer=observer)
+            report = (validate_fbx_path if kind == 'fbx' else validate_path)(input_path, limits, observer=observer)
+            # The reduced file is built from the same accepted bytes; a source
+            # the scene reader cannot read gives no file and a stated reason.
+            with input_path.open('rb') as stream: wire=stream.read(settings.input_bytes+1)
+            if len(wire)>settings.input_bytes: raise ValueError('Input budget changed')
+            model,model_facts=build_reduced_model(wire,kind,limits)
+            del wire
+            if model is not None:
+                model_path=settings.scratch/'model.fbx'
+                with model_path.open('xb') as stream:
+                    stream.write(model); stream.flush()
+                del model
         except ReadError as error:
             sha = hashlib.sha256()
             with input_path.open('rb') as stream:
@@ -82,11 +98,12 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
     else:
         raise ValueError('Unsupported input')
     raw = json.loads(report.to_json())
+    if model_facts is not None: raw['reduced_model'] = model_facts
     if observer:
         observer.finish(report.findings,any(item.get('read_status') in {'failed','unsupported'} for item in report.files))
         raw['check_evidence'] = observer.snapshot()
     value = sanitize_report(raw, max_bytes=settings.report_bytes, max_findings=settings.report_findings)
-    return ValidationResult(value,preview_path,False,preview_reason)
+    return ValidationResult(value,preview_path,False,preview_reason,model_path)
 
 
 def main():
@@ -171,9 +188,13 @@ def main():
         if result.preview_input_path is not None:
             wire=result.preview_input_path.read_bytes()
             preview={'kind':'preview','bytes':len(wire),'sha256':hashlib.sha256(wire).hexdigest()}
+        model=None
+        if result.model_path is not None:
+            wire=result.model_path.read_bytes()
+            model={'kind':'model','bytes':len(wire),'sha256':hashlib.sha256(wire).hexdigest()}
         message = {'schema': 1, 'tool': __version__, 'inputHash': result.report['input_sha256'],
                    'report': {'kind': 'report', 'bytes': len(output), 'sha256': hashlib.sha256(output).hexdigest()},
-                   'previewInput':preview,'technicalFailure':False,'failureCode':result.failure_code}
+                   'previewInput':preview,'model':model,'technicalFailure':False,'failureCode':result.failure_code}
         print(json.dumps(message, allow_nan=False, sort_keys=True), flush=True)
     except (OSError, ValueError, MemoryError):
         raise SystemExit(70) from None

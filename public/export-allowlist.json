@@ -50,8 +50,36 @@
       "export": "src/model_generator/fbx_scene.py"
     },
     {
+      "source": "src/model_generator/fbx_write.py",
+      "export": "src/model_generator/fbx_write.py"
+    },
+    {
+      "source": "src/model_generator/npm_export.py",
+      "export": "src/model_generator/npm_export.py"
+    },
+    {
+      "source": "src/model_generator/reduced_model.py",
+      "export": "src/model_generator/reduced_model.py"
+    },
+    {
+      "source": "src/model_generator/simplify.py",
+      "export": "src/model_generator/simplify.py"
+    },
+    {
+      "source": "src/model_generator/dwg_convert.py",
+      "export": "src/model_generator/dwg_convert.py"
+    },
+    {
+      "source": "src/model_generator/dxf_heights.py",
+      "export": "src/model_generator/dxf_heights.py"
+    },
+    {
       "source": "src/model_generator/limits.py",
       "export": "src/model_generator/limits.py"
+    },
+    {
+      "source": "src/model_generator/terrain.py",
+      "export": "src/model_generator/terrain.py"
     },
     {
       "source": "src/model_generator/package_manifest.py",
@@ -116,6 +144,34 @@
     {
       "source": "tests/test_fbx_scene.py",
       "export": "tests/test_fbx_scene.py"
+    },
+    {
+      "source": "tests/test_fbx_write.py",
+      "export": "tests/test_fbx_write.py"
+    },
+    {
+      "source": "tests/test_npm_export.py",
+      "export": "tests/test_npm_export.py"
+    },
+    {
+      "source": "tests/test_reduced_model.py",
+      "export": "tests/test_reduced_model.py"
+    },
+    {
+      "source": "tests/test_simplify.py",
+      "export": "tests/test_simplify.py"
+    },
+    {
+      "source": "tests/test_terrain.py",
+      "export": "tests/test_terrain.py"
+    },
+    {
+      "source": "tests/test_dwg_convert.py",
+      "export": "tests/test_dwg_convert.py"
+    },
+    {
+      "source": "tests/test_dxf_heights.py",
+      "export": "tests/test_dxf_heights.py"
     },
     {
       "source": "tests/test_package_reader.py",
@@ -550,6 +606,10 @@
       "export": "tests/web/test_jobs.py"
     },
     {
+      "source": "tests/web/test_job_dto.py",
+      "export": "tests/web/test_job_dto.py"
+    },
+    {
       "source": "tests/web/test_lifecycle.py",
       "export": "tests/web/test_lifecycle.py"
     },
@@ -882,6 +942,10 @@
       "export": "tests/release/test_cold_operator.py"
     },
     {
+      "source": "tests/release/test_keeper_exec.py",
+      "export": "tests/release/test_keeper_exec.py"
+    },
+    {
       "source": "scripts/ci-web-cold-recovery.py",
       "export": "scripts/ci-web-cold-recovery.py"
     },
@@ -980,6 +1044,10 @@
     {
       "source": "src/model_generator/web/migrations/011-fbx-input-kind.sql",
       "export": "src/model_generator/web/migrations/011-fbx-input-kind.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/012-model-artifact.sql",
+      "export": "src/model_generator/web/migrations/012-model-artifact.sql"
     },
     {
       "source": "tests/web/test_input_formats.py",

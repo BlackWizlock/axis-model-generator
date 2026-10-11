@@ -5,11 +5,13 @@ from .security import ApiError
 from .store import ID
 from .s3_store import ObjectDescriptor,ObjectIntent
 from .uploads import owned_io
+from ..reduced_model import MODEL_MAX_BYTES
 
 KINDS={
     'report':('application/json','model-generator-report.json','report.json','report_max_bytes'),
     'preview':('application/json','model-generator-preview.json','preview-input.json','preview_max_bytes'),
     'thumbnail':('image/png','model-generator-thumbnail.png','thumbnail.png',None),
+    'model':('application/octet-stream','model-generator-reduced.fbx','model.fbx',None),
 }
 
 
@@ -37,7 +39,7 @@ def owned_artifact_descriptor(db,store,owner_id,job_id,artifact_id,now):
         item=con.execute("SELECT * FROM artifacts WHERE id=%s AND job_id=%s AND state='ready'",(artifact_id,job_id)).fetchone()
         if not item or item['kind'] not in KINDS: raise ApiError('not_found','Resource is unavailable.',404)
         mime,filename,suffix,cap_name=KINDS[item['kind']]
-        cap=getattr(store.settings,cap_name) if cap_name else 4*1024**2
+        cap=getattr(store.settings,cap_name) if cap_name else MODEL_MAX_BYTES if item['kind']=='model' else 4*1024**2
         if (not 1<=item['bytes']<=cap or item['object_key']!=f"owners/{owner_id}/jobs/{job_id}/{item['attempt_epoch']}/{suffix}"):
             raise ApiError('not_found','Resource is unavailable.',404)
         return {**item,'owner_id':owner_id,'contentType':mime,'filename':filename,'expiresAt':job['expires_at']}

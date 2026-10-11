@@ -2,7 +2,7 @@ import './shell.js';
 import {trackGoal,watchDiagnostic,observeDiagnostic} from './analytics.js';
 import {getChecks,renderChecks,completionText,runSourceLabel} from './checks.js';
 import {api,ApiError,artifactPath,setCsrfToken} from './api.js';
-import {allowedExtensions,acceptsFile,rejectedFileText} from './input-formats.js';
+import {allowedExtensions,acceptsFile,kindForFile,rejectedFileText} from './input-formats.js';
 import {guestSession} from './auth.js';
 import {uploadFile,UPLOAD_CAP,uploadStageText} from './upload.js';
 import {getJobs,getJob,createJob,cancelJob,deleteJob,startPolling,statusText,terminal,jobAxes,jobArtifacts} from './jobs.js';
@@ -13,7 +13,7 @@ function message(id,text,error=false){const node=byId(id);node.textContent=text;
 const safeError=error=>error instanceof ApiError?error.message:error?.name==='AbortError'?'Действие отменено.':'Не удалось выполнить действие. Попробуйте ещё раз.';
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(className)node.className=className;return node;}
 function action(label,callback){const button=element('button',label,'button quiet');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;try{await callback();}catch(error){message('jobs-message',safeError(error),true);}finally{button.disabled=false;}});return button;}
-function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('thumbnail').hidden=true;byId('thumbnail').removeAttribute('src');byId('reset-view').disabled=true;byId('report-panel').hidden=true;byId('report-download').removeAttribute('href');}
+function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('thumbnail').hidden=true;byId('thumbnail').removeAttribute('src');byId('reset-view').disabled=true;byId('report-panel').hidden=true;byId('report-download').removeAttribute('href');byId('model-download').hidden=true;byId('model-download').removeAttribute('href');}
 function setUser(user){
  state.user=user;state.poller?.stop();state.poller=null;
  byId('upload-submit').disabled=!user;
@@ -39,12 +39,13 @@ function setInputFormats(rows){
  checkChosenFile();
 }
 function chosenFileChanged(){if(checkChosenFile())message('upload-message','');}
+function fileChosen(){const file=byId('input-file').files[0],select=byId('input-kind');if(file)select.value=kindForFile(file,select.value,state.inputFormats);chosenFileChanged();}
 byId('input-kind').addEventListener('change',chosenFileChanged);
-byId('input-file').addEventListener('change',chosenFileChanged);
+byId('input-file').addEventListener('change',fileChosen);
 const dropZone=byId('upload-zone');
 dropZone.addEventListener('dragover',event=>{event.preventDefault();dropZone.classList.add('dragging');});
 dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragging'));
-dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('dragging');if(state.upload||!event.dataTransfer?.files.length)return;byId('input-file').files=event.dataTransfer.files;chosenFileChanged();});
+dropZone.addEventListener('drop',event=>{event.preventDefault();dropZone.classList.remove('dragging');if(state.upload||!event.dataTransfer?.files.length)return;byId('input-file').files=event.dataTransfer.files;fileChosen();});
 const localDate=new Date();byId('submission-date').value=`${localDate.getFullYear()}-${String(localDate.getMonth()+1).padStart(2,'0')}-${String(localDate.getDate()).padStart(2,'0')}`;
 function updateUploadHeartbeat(started){byId('upload-heartbeat').textContent=`${uploadStageText(state.uploadPhase)} · последнее обновление: ${state.uploadReply?`${Math.floor((Date.now()-state.uploadReply)/1000)} с назад`:'ещё не получен'}. Время ожидания: ${Math.floor((Date.now()-started)/1000)} с.`;}
 byId('upload-form').addEventListener('submit',async event=>{
@@ -99,15 +100,22 @@ async function refreshChecks(job){
  const fingerprint=JSON.stringify([checks.attempt,checks.authoritative,checks.checks.map(row=>[row.id,row.state,row.count,row.sequence])]);state.checkSummary=completionText(job,checks);byId('checks-summary').textContent=`${state.checkSummary} Этап: ${statusText(job.stage)}. Последний ответ ${new Date().toLocaleTimeString('ru-RU')}.`;
  showAxes({coverage:checks.coverage});if(state.checkFingerprint===fingerprint)return;state.checkFingerprint=fingerprint;renderChecks(byId('checks-list'),checks,()=>epoch===state.selectionEpoch&&state.selected===job.id&&state.checkFingerprint===fingerprint);
 }
+function reducedModelText(model,facts){
+ if(!facts||typeof facts!=='object')return'';
+ if(!model||facts.status!=='built')return' Упрощённая модель FBX не собрана: геометрию входа не удалось прочитать полностью или результат превышает допустимый размер.';
+ if(!Number.isSafeInteger(facts.input_triangles)||!Number.isSafeInteger(facts.output_triangles))return'';
+ return` Упрощённая модель FBX: ${facts.output_triangles} из ${facts.input_triangles} треугольников, отклонение не больше 2 см. Исходные файлы приняты как лежащие в общих координатах; текстуры не переносятся.`;
+}
 async function openJob(id,{scroll=true}={}){
  const epoch=++state.selectionEpoch;const user=state.user;if(!user)return;state.selected=id;state.demo=false;byId('checks-list').replaceChildren();byId('checks-summary').textContent='Загружаем результаты проверок…';state.checkSummary=null;state.checkFingerprint=null;resetPreview();byId('preview-provenance').textContent='ПРИВАТНЫЙ ПАКЕТ';byId('viewer').textContent='Открываем результат вашего пакета…';message('preview-message','');
  if(scroll)byId('preview-section').scrollIntoView({block:'start'});
  try{
   const job=await getJob(id);if(epoch!==state.selectionEpoch||user!==state.user)return;
   observeDiagnostic(job);const source=runSourceLabel(job);byId('preview-provenance').textContent=`ПРИВАТНЫЙ ПАКЕТ · ${source}`;
-  state.selectedFingerprint=jobFingerprint(job);await refreshChecks(job);if(epoch!==state.selectionEpoch||user!==state.user)return;showAxes(job);byId('report-panel').hidden=false;byId('report-download').hidden=true;byId('report-summary').textContent=`${source}. Отчёт появится после обработки. Завершение обработки не подтверждает нормативную готовность.`;byId('report-findings').replaceChildren();const report=jobArtifacts(job).find(n=>n.kind==='report');const preview=jobArtifacts(job).find(n=>n.kind==='preview');
+  state.selectedFingerprint=jobFingerprint(job);await refreshChecks(job);if(epoch!==state.selectionEpoch||user!==state.user)return;showAxes(job);byId('report-panel').hidden=false;byId('report-download').hidden=true;byId('report-summary').textContent=`${source}. Отчёт появится после обработки. Завершение обработки не подтверждает нормативную готовность.`;byId('report-findings').replaceChildren();const report=jobArtifacts(job).find(n=>n.kind==='report');const preview=jobArtifacts(job).find(n=>n.kind==='preview');const model=jobArtifacts(job).find(n=>n.kind==='model');
+  byId('model-download').hidden=!model;if(model)byId('model-download').href=artifactPath(id,model.id);else byId('model-download').removeAttribute('href');
   if(report){const path=artifactPath(id,report.id);const document=await api(path,{maxBytes:4*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;byId('report-panel').hidden=false;byId('report-download').href=path;byId('report-download').hidden=false;const findings=Array.isArray(document.findings)?document.findings:[];
-   byId('report-summary').textContent=`${source}. ${state.checkSummary||''} Обработка: ${statusText(job.state)}. Замечаний в отчёте: ${findings.length}${document.report_truncated?' · отчёт сокращён':''}. Завершение обработки не подтверждает нормативную готовность.`;
+   byId('report-summary').textContent=`${source}. ${state.checkSummary||''} Обработка: ${statusText(job.state)}. Замечаний в отчёте: ${findings.length}${document.report_truncated?' · отчёт сокращён':''}. Завершение обработки не подтверждает нормативную готовность.${reducedModelText(model,document.reduced_model)}`;
    const list=byId('report-findings');list.replaceChildren();for(const finding of findings.slice(0,1000)){const row=element('li');row.textContent=[finding.rule_id,finding.status,finding.message].filter(n=>typeof n==='string').join(' · ');list.append(row);}if(findings.length>1000)list.append(element('li','Показаны первые 1000 замечаний. Полный список доступен в скачиваемом отчёте.'));
   }
   const thumbnail=jobArtifacts(job).find(n=>n.kind==='thumbnail');byId('thumbnail').hidden=!thumbnail;if(thumbnail)byId('thumbnail').src=artifactPath(id,thumbnail.id);

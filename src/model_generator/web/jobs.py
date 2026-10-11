@@ -12,6 +12,7 @@ from model_generator import __version__
 from .security import ApiError
 from .store import ID
 from .preview_runner import installed_preview_fingerprint
+from ..reduced_model import MODEL_MAX_BYTES
 
 HASH = re.compile(r'[a-f0-9]{64}\Z')
 TERMINAL = {'completed', 'failed', 'cancelled', 'deleted'}
@@ -66,11 +67,14 @@ def job_dto(row,artifacts,now):
     if result['coverage']['procedure'] not in {'partial','unknown'}: result['coverage']['procedure']='unknown'
     result['coverage']['external']='not_checked'
     result['capabilities'] = {kind: {'availability': 'unavailable', 'reason': 'generation_not_implemented'} for kind in ('npm', 'vpm', 'ifc')}
-    result['capabilities']['preview'] = {'availability': 'unavailable', 'reason': 'zip_fbx_preview_not_verified' if row['input_kind'] == 'zip-fbx' else row.get('preview_failure_code') or 'preview_pending'}
+    result['capabilities']['preview'] = {'availability': 'unavailable', 'reason': 'zip_fbx_preview_not_verified' if row['input_kind'] == 'zip-fbx' else row.get('preview_failure_code') or ('preview_unsupported' if row['input_kind'] == 'fbx' else 'preview_pending')}
+    result['capabilities']['model'] = {'availability': 'unavailable', 'reason': 'model_unsupported' if row['input_kind'] == 'portable-package' else 'model_not_built'}
     result['artifacts'] = []
     if row['state'] in {'completed', 'failed'} and not row['cancel_requested'] and row['expires_at']>now:
         for item in artifacts:
             result['artifacts'].append({**{key:item[key] for key in ('id','kind','bytes','sha256')}, 'url': f"/api/jobs/{row['id']}/artifacts/{item['id']}"})
+    if row['input_kind'] in {'zip-fbx','fbx'} and any(item['kind']=='model' for item in result['artifacts']):
+        result['capabilities']['model']={'availability':'available','reason':None}
     if row['input_kind']=='portable-package' and {'preview','thumbnail'} <= {item['kind'] for item in result['artifacts']}:
         result['capabilities']['preview']={'availability':'available','reason':None}
     return result
@@ -202,7 +206,7 @@ class JobRepository:
             if not candidate: return None
             return con.execute("UPDATE jobs SET state='running',attempts=attempts+1,worker_epoch=%s,updated_at=%s WHERE id=%s AND state='queued' AND attempts<2 RETURNING *", (epoch, now, candidate['id'])).fetchone()
 
-    def checkpoint(self, job_id, epoch, stage, fingerprint, artifacts, now, preview_reason=None):
+    def checkpoint(self, job_id, epoch, stage, fingerprint, artifacts, now, preview_reason=None, model=None):
         if stage not in {'report','preview'} or not HASH.fullmatch(fingerprint) or len(artifacts) not in {1,2} or (stage=='preview') != (len(artifacts)==2):
             raise ValueError('Invalid checkpoint')
         with self.db.transaction() as con:
@@ -230,6 +234,12 @@ class JobRepository:
                 self._checked_intent(con,job,preview,'preview',epoch,self.settings.preview_max_bytes)
                 con.execute("UPDATE job_object_intents SET state='complete',multipart_id=NULL WHERE object_id=%s",(preview['id'],))
                 checkpoint['previewInput']=preview
+            if model is not None:
+                if job['input_kind'] not in {'zip-fbx','fbx'}: raise ValueError('Invalid model checkpoint')
+                self._checked_intent(con,job,model,'model',epoch,MODEL_MAX_BYTES)
+                con.execute("UPDATE artifacts SET state='ready' WHERE id=%s",(model['id'],))
+                con.execute("UPDATE job_object_intents SET state='complete',multipart_id=NULL WHERE object_id=%s",(model['id'],))
+                checkpoint['model']=model
             self._preview_reason(preview_reason)
             con.execute('UPDATE jobs SET checkpoint=%s,stage=%s,coverage=%s,updated_at=%s,preview_failure_code=%s WHERE id=%s', (Jsonb(checkpoint),stage,Jsonb(coverage),now,preview_reason,job_id))
 
@@ -239,7 +249,7 @@ class JobRepository:
             raise ValueError('Invalid preview reason')
 
     def _checked_intent(self,con,job,item,kind,epoch,cap):
-        suffix={'preview':'preview-input.json','thumbnail':'thumbnail.png'}[kind]
+        suffix={'preview':'preview-input.json','thumbnail':'thumbnail.png','model':'model.fbx'}[kind]
         if (set(item)!={'id','kind','bytes','sha256','key'} or item['kind']!=kind or not ID.fullmatch(item['id']) or not HASH.fullmatch(item['sha256'])
                 or type(item['bytes']) is not int or not 1<=item['bytes']<=cap or item['key']!=f"owners/{job['owner_id']}/jobs/{job['id']}/{epoch}/{suffix}"):
             raise ValueError('Invalid preview artifact checkpoint')

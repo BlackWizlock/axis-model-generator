@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import time
 import urllib.request
 import urllib.error
 
@@ -132,6 +133,23 @@ print('Offline expected identity exception passed; other durable state untouched
 """
 
 
+def keeper_exec(keeper,code,attempts=3):
+    """Read through the keeper; retry only when the runtime could not start the process.
+
+    The keeper runs with pids_limit 8. The exec shim peaks at exactly that count,
+    so the kernel occasionally denies one clone and the runtime reports
+    "OCI runtime exec failed" with exit 126 or 128 before any code runs.
+    The read is idempotent. A failure of the code itself is never retried.
+    """
+    args=['docker','exec',keeper,'python','-I','-c',code]
+    for attempt in range(attempts):
+        try:return subprocess.check_output(args,text=True,stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as error:
+            started=error.returncode in (126,128) and 'OCI runtime exec failed' in (error.stdout or '')+(error.stderr or '')
+            if not started or attempt==attempts-1:raise
+        time.sleep(1)
+
+
 def reset(compose,root,project,images,expected,keeper_gate,migrator_file=None):
     if (len(expected)!=3 or any(type(value)!=int or value<0 for value in expected[:2])
             or (expected[2] is not None and (not isinstance(expected[2],str) or not re.fullmatch(r'[0-9a-f]{32}',expected[2])))):
@@ -155,7 +173,7 @@ else:
         print(json.dumps([s.st_dev,s.st_ino,b.decode('ascii')]))
     finally:os.close(fd)
 """
-    identity=json.loads(subprocess.check_output(['docker','exec',keeper,'python','-I','-c',identity_code],text=True))
+    identity=json.loads(keeper_exec(keeper,identity_code))
     if identity is not None and tuple(identity)==tuple(expected):
         raise ValueError('Scratch identity survived; offline exception is unnecessary')
     dsn=Path(migrator_file) if migrator_file is not None else Path(root)/'secrets/runtime/migrator_dsn'

@@ -5,6 +5,10 @@ if [[ "$*" == "--task fbx_seed" ]]; then
   bash "$(dirname "$0")/ci-fbx-seed.sh"
   return
 fi
+if [[ "$*" == "--task dwg_probe" ]]; then
+  bash "$(dirname "$0")/ci-dwg-probe.sh"
+  return
+fi
 if [[ "$*" == "--task all" ]]; then
   cd "$(dirname "$0")/.."
   python3 scripts/ci-web-all.py

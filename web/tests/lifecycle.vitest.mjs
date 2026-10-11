@@ -2,7 +2,7 @@ import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {allowedExtensions,acceptsFile,unavailableFormatText,rejectedFileText} from '../src/input-formats.js';
+import {allowedExtensions,acceptsFile,kindForFile,unavailableFormatText,rejectedFileText} from '../src/input-formats.js';
 const formats=[{id:'portable-package',extensions:['.zip'],upload:true,diagnostics:true,preview:true,generation:false,reason:null},{id:'zip-fbx',extensions:['.zip'],upload:true,diagnostics:true,preview:false,generation:false,reason:null},{id:'rvt',extensions:['.rvt'],upload:false,diagnostics:false,preview:false,generation:false,reason:'engine_unavailable'}];
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 import {renderChecks} from '../src/checks.js';
@@ -19,7 +19,7 @@ class Element {
 async function appHarness(overrides={}) {
  const nodes={},events={},pollers=[];let disposed=0;
  const get=id=>nodes[id]||=new Element();
- const context={allowedExtensions,acceptsFile,unavailableFormatText,rejectedFileText,console,Date,JSON,Set,Math,AbortController,trackGoal,watchDiagnostic,observeDiagnostic,document:{hidden:false,getElementById:get,createElement:tag=>new Element(tag)},window:{addEventListener:(name,fn)=>events[name]=fn},setInterval:()=>1,clearInterval(){},
+ const context={allowedExtensions,acceptsFile,kindForFile,unavailableFormatText,rejectedFileText,console,Date,JSON,Set,Math,AbortController,trackGoal,watchDiagnostic,observeDiagnostic,document:{hidden:false,getElementById:get,createElement:tag=>new Element(tag)},window:{addEventListener:(name,fn)=>events[name]=fn},setInterval:()=>1,clearInterval(){},
  api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};return {provenance:'synthetic'};},
  ApiError:class extends Error{},artifactPath:()=>'/artifact',setCsrfToken(){},guestSession:async()=>{},UPLOAD_CAP:1000,uploadStageText:x=>x,
  getJobs:async()=>({jobs:[],nextCursor:null}),getJob:async id=>({id,state:'completed',inputHash:'b'.repeat(64)}),createJob:async()=>({id:'a'.repeat(32)}),cancelJob(){},deleteJob(){},
@@ -81,10 +81,36 @@ for(const inputFormats of [null,undefined]) test(`config failure remains closed 
   await app.get('upload-form').events.submit({preventDefault(){}});
   assert.equal(app.get('upload-submit').disabled,true);assert.equal(uploads,0);assert.match(app.get('session-message').textContent,/Загрузка недоступна/);
 });
+test('a chosen file selects the kind that accepts it and keeps an explicit fitting choice',async()=>{
+ const rows=[{id:'portable-package',extensions:['.zip'],upload:true,diagnostics:true,preview:true,generation:false,reason:null},{id:'zip-fbx',extensions:['.zip'],upload:true,diagnostics:true,preview:false,generation:false,reason:null},{id:'fbx',extensions:['.fbx'],upload:true,diagnostics:true,preview:false,generation:false,reason:null}];
+ const app=await appHarness({api:async path=>path==='/api/config'?{sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:rows}:{csrfToken:'token',limits:{uploadBytes:500}}});
+ const kind=app.get('input-kind'),file=app.get('input-file');
+ assert.equal(kind.value,'portable-package');
+ file.files=[{name:'House.FBX',size:10}];file.events.change();
+ assert.equal(kind.value,'fbx');assert.equal(app.get('upload-submit').disabled,false);assert.equal(app.get('upload-message').textContent,'');
+ file.files=[{name:'site.zip',size:10}];file.events.change();assert.equal(kind.value,'zip-fbx');
+ kind.value='portable-package';kind.events.change();file.files=[{name:'other.zip',size:10}];file.events.change();
+ assert.equal(kind.value,'portable-package');
+ kind.value='zip-fbx';app.get('upload-zone').events.drop({preventDefault(){},dataTransfer:{files:[{name:'house.fbx',size:10}]}});
+ assert.equal(kind.value,'fbx');assert.equal(app.get('upload-submit').disabled,false);
+});
 test('authenticated limits preserve server matrix and explicit ZIP choice',async()=>{
  let received;
  const app=await appHarness({api:async path=>path==='/api/config'?{sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats}:{csrfToken:'token',limits:{uploadBytes:500}},uploadFile:async(file,kind,csrf,progress,signal,limits)=>{received={kind,limits};return {id:'a'.repeat(32)};}});
  app.get('input-file').files=[{name:'model.zip',size:10}];app.get('input-kind').value='zip-fbx';app.get('input-kind').events.change();
  await app.get('upload-form').events.submit({preventDefault(){}});
  assert.equal(received.kind,'zip-fbx');assert.equal(received.limits.inputFormats,formats);assert.equal(received.limits.uploadBytes,500);
+});
+
+test('reduced model link appears only with its file and is cleared with the selection',async()=>{
+ const artifacts=[{id:'r'.repeat(32),kind:'report'},{id:'m'.repeat(32),kind:'model'}];let built=true;
+ const app=await appHarness({jobArtifacts:()=>built?artifacts:artifacts.slice(0,1),artifactPath:(job,item)=>`/artifact/${item}`,
+  api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};
+   return {findings:[],reduced_model:built?{status:'built',input_triangles:900,output_triangles:120}:{status:'not_built',reason:'model_unsupported'}};}});
+ await vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
+ assert.equal(app.get('model-download').hidden,false);assert.equal(app.get('model-download').href,`/artifact/${'m'.repeat(32)}`);
+ assert.match(app.get('report-summary').textContent,/120 из 900 треугольников/);assert.match(app.get('report-summary').textContent,/текстуры не переносятся/);
+ built=false;await vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
+ assert.equal(app.get('model-download').hidden,true);assert.equal(app.get('model-download').getAttribute('href'),undefined);
+ assert.match(app.get('report-summary').textContent,/не собрана/);
 });

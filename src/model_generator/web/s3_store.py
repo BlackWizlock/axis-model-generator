@@ -226,12 +226,12 @@ class ObjectStore:
         self.client._endpoint.http_session.close()
         self.client._endpoint.http_session=self.transport
     def _key(self,key):
-        if not re.fullmatch(r'owners/[a-f0-9]{32}/(?:uploads|jobs)/[a-f0-9]{32}/[a-f0-9]{32}/(?:input\.zip|input\.bin|report\.json|preview\.json|preview-input\.json|thumbnail\.png|measurements\.json)',key):
+        if not re.fullmatch(r'owners/[a-f0-9]{32}/(?:uploads|jobs)/[a-f0-9]{32}/[a-f0-9]{32}/(?:input\.zip|input\.bin|report\.json|preview\.json|preview-input\.json|thumbnail\.png|measurements\.json|model\.fbx)',key):
             raise ValueError('Invalid private object key')
         return {'Bucket':self.settings.bucket,'Key':key}
     @staticmethod
     def _content_type(key):
-        if key.endswith('/input.bin'): return 'application/octet-stream'
+        if key.endswith(('/input.bin','/model.fbx')): return 'application/octet-stream'
         if key.endswith('/input.zip'): return 'application/zip'
         if key.endswith('/thumbnail.png'): return 'image/png'
         return 'application/json'

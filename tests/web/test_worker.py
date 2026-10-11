@@ -571,8 +571,84 @@ with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verifie
                 self.assertEqual(job['checkpoint'],original)
         finally: db.close()
 
+    def test_archive_of_fbx_gets_a_reduced_model_checkpoint_download_and_recovery(self):
+        from unittest.mock import patch
+        from test_reduced_model import package,tower,lawn
+        from model_generator.fbx_binary import parse_fbx
+        from model_generator.fbx_scene import read_scene
+        wire=package({'SM_Site_001_Main.fbx':tower(),'SM_Site_Ground.fbx':lawn()})
+        dto=self.create(self.upload(wire)).json()
+        self.assertEqual(dto['capabilities']['model'],{'availability':'unavailable','reason':'model_not_built'})
+        settings=self.worker_settings(); db=Database(settings)
+        try:
+            with worker_lease(db,settings,'a'*32): self.assertTrue(run_once(db,settings,'a'*32))
+            with db.connect() as con:
+                job=con.execute('SELECT * FROM jobs WHERE id=%s',(dto['id'],)).fetchone()
+                artifacts={a['kind']:a for a in con.execute('SELECT * FROM artifacts WHERE job_id=%s',(dto['id'],)).fetchall()}
+                intents=con.execute("SELECT state FROM job_object_intents WHERE object_id IN (SELECT id FROM artifacts WHERE job_id=%s)",(dto['id'],)).fetchall()
+                quota=con.execute('SELECT storage_bytes FROM quota_scopes WHERE scope=%s',(self.owner['userId'],)).fetchone()['storage_bytes']
+            self.assertEqual(job['state'],'completed')
+            self.assertEqual(set(job['checkpoint']),{'schema','fingerprint','inputHash','artifact','model'})
+            self.assertEqual(set(artifacts),{'report','model'})
+            self.assertTrue(all(a['state']=='ready' for a in artifacts.values()))
+            self.assertEqual([i['state'] for i in intents],['complete','complete'])
+            model=artifacts['model']
+            self.assertEqual(model['object_key'],f"owners/{self.owner['userId']}/jobs/{dto['id']}/{'a'*32}/model.fbx")
+            self.assertEqual(quota,len(wire)+sum(a['bytes'] for a in artifacts.values()))
+            result=self.app.state.jobs.get_owned(self.owner['userId'],dto['id'],int(time.time()))
+            self.assertEqual(result['capabilities']['model'],{'availability':'available','reason':None})
+            self.assertTrue(all(result['capabilities'][kind]['availability']=='unavailable' for kind in ('npm','vpm','ifc')))
+            response=self.client.get(f"/api/jobs/{dto['id']}/artifacts/{model['id']}")
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.headers['content-type'],'application/octet-stream')
+            self.assertIn('model-generator-reduced.fbx',response.headers['content-disposition'])
+            self.assertEqual(hashlib.sha256(response.content).hexdigest(),model['sha256'])
+            self.assertEqual(len(read_scene(parse_fbx(response.content)).meshes),2)
+            report=self.client.get(f"/api/jobs/{dto['id']}/artifacts/{artifacts['report']['id']}").json()
+            self.assertEqual(report['reduced_model']['status'],'built')
+            self.assertEqual(report['reduced_model']['output_triangles'],sum(len(m.triangles)//3 for m in read_scene(parse_fbx(response.content)).meshes))
+            # A later worker epoch trusts only the hash-checked stored file and never reparses.
+            with db.transaction() as con:
+                con.execute("UPDATE jobs SET state='running',stage='report',active_reserved=TRUE WHERE id=%s",(dto['id'],))
+                con.execute("UPDATE quota_scopes SET active_jobs=active_jobs+1 WHERE scope IN ('global',%s)",(self.owner['userId'],))
+            with worker_lease(db,settings,'b'*32):
+                recover(db,settings,'b'*32,int(time.time()))
+                with patch('model_generator.web.worker.run_child',side_effect=AssertionError('Recovered input was reparsed')):
+                    self.assertTrue(run_once(db,settings,'b'*32))
+            with db.connect() as con:
+                job=con.execute('SELECT * FROM jobs WHERE id=%s',(dto['id'],)).fetchone()
+                kept=con.execute("SELECT id FROM artifacts WHERE job_id=%s AND kind='model' AND state='ready'",(dto['id'],)).fetchone()
+            self.assertEqual((job['state'],kept['id']),('completed',model['id']))
+        finally: db.close()
+
+    def test_unreadable_archive_completes_with_a_report_and_no_model(self):
+        dto=self.create(self.upload()).json()
+        settings=self.worker_settings(); db=Database(settings)
+        try:
+            with worker_lease(db,settings,'a'*32): self.assertTrue(run_once(db,settings,'a'*32))
+            with db.connect() as con:
+                job=con.execute('SELECT * FROM jobs WHERE id=%s',(dto['id'],)).fetchone()
+                kinds=[a['kind'] for a in con.execute('SELECT kind FROM artifacts WHERE job_id=%s',(dto['id'],)).fetchall()]
+            self.assertEqual((job['state'],kinds),('completed',['report']))
+            self.assertNotIn('model',job['checkpoint'])
+            result=self.app.state.jobs.get_owned(self.owner['userId'],dto['id'],int(time.time()))
+            self.assertEqual(result['capabilities']['model'],{'availability':'unavailable','reason':'model_not_built'})
+        finally: db.close()
+
 
 class ChildControlTests(unittest.TestCase):
+    def test_guarded_child_writes_a_checked_reduced_model(self):
+        from web.helpers import settings_for
+        from test_reduced_model import tower
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch=Path(tmp); (scratch/'input.bin').write_bytes(tower())
+            result,code=run_child(settings_for(scratch),scratch,'fbx',lambda:False,descriptor_version=1)
+            self.assertIsNone(code)
+            item=result['message']['model']
+            data=(scratch/'model.fbx').read_bytes()
+            self.assertEqual(item,{'kind':'model','bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+            self.assertEqual(result['report']['reduced_model']['status'],'built')
+
     def test_neutral_version_uses_real_guarded_reader(self):
         from web.helpers import settings_for
         with tempfile.TemporaryDirectory() as tmp:

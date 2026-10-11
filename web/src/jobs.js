@@ -21,4 +21,4 @@ export function jobAxes(job){
  const coverage=job.coverage||{};
  return [['Техническая проверка',coverage.technical||'not_checked'],['Региональный профиль',coverage.profile||'research'],['Процедура',coverage.procedure||'unknown'],['Внешняя приёмка',coverage.external||'not_checked']];
 }
-export function jobArtifacts(job){return Array.isArray(job.artifacts)?job.artifacts.filter(item=>item&&['report','preview','thumbnail'].includes(item.kind)):[];}
+export function jobArtifacts(job){return Array.isArray(job.artifacts)?job.artifacts.filter(item=>item&&['report','preview','thumbnail','model'].includes(item.kind)):[];}

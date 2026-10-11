@@ -50,7 +50,7 @@ class ConfigDatabaseTests(unittest.TestCase):
         inventory=module.migrations()
         baseline={1: '3d8cf51da208cbbcd8dfc26415ea0e3c7bfbc325f3ace7af11c1c0a8292c91ac', 2: '209b73a7607a1dd17d96190f65f1fd2a786c1e269493dfbe51ed45d876f8a19a', 3: '366d302d34f7b2e0708c0062f814137b03537381bc93c777ce1a68508cca5e3f', 4: '6221d3736e54cf0367ba63a824fa27acb13079517373a16a205c874834c02ab2', 5: 'c9cf0c04324766a3f7ee3315c68aa3c80d27772ebc3331478fcc3df8be6bed1e', 6: 'b9b5e5cb415b96a2d6a16a4bc022b2825e9c17bd1a7067b7de9dc0189e86d8d1', 7: '6a7391cee1d3f1e2e18933caae5ee34678269211d447bc0a9b5bcfbd2e5b5179', 8: '66ac811d8510b2a9f71bb72090e19e2a693f95c01e06986a6d61e12adc72e30f', 9: 'b1b5ac4a4ee8cef3bd875fd3ab4ed05f72ef7681054a721f6cbcf374e96c3038'}
         self.assertEqual({v:c for v,c,_ in inventory if v<=9},baseline)
-        self.assertEqual(module.EXPECTED_SCHEMA_VERSION,11)
+        self.assertEqual(module.EXPECTED_SCHEMA_VERSION,12)
         def empty_schema():
             with admin_connect() as admin:
                 admin.execute('DROP SCHEMA mg CASCADE')
@@ -74,7 +74,7 @@ class ConfigDatabaseTests(unittest.TestCase):
                 self.assertEqual(admin.execute('SELECT descriptor_version,input_descriptor,object_key FROM mg.uploads WHERE id=%s',(id,)).fetchone(),(0,None,key))
                 self.assertEqual(admin.execute('SELECT key FROM mg.object_intents WHERE object_id=%s',(id,)).fetchone()[0],key)
                 self.assertEqual(dict(admin.execute('SELECT version,checksum FROM mg.schema_meta WHERE version<=9').fetchall()),baseline)
-                self.assertEqual(admin.execute('SELECT max(version) FROM mg.schema_meta').fetchone()[0],11)
+                self.assertEqual(admin.execute('SELECT max(version) FROM mg.schema_meta').fetchone()[0],12)
                 self.assertEqual(admin.execute('SELECT version,granted_at,expires_at,revoked_at,purge_at FROM mg.analytics_consents WHERE receipt_hash=%s',('b'*64,)).fetchone(),(1,1,2592001,None,94608001))
                 self.assertEqual(admin.execute("SELECT count(*) FROM mg.auth_attempts WHERE action='analytics-ip'").fetchone()[0],1)
             db=Database(Settings(Path('/tmp/schema-proof'),'https://testserver',secrets.token_bytes(32),own_dsn()))

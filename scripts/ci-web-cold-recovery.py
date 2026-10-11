@@ -84,6 +84,7 @@ try:
 finally:os.close(fd)
 """
 
+DENY_REASONS={'runtime':'Runtime PostgreSQL connections remain','advisory':'Advisory lock remains','row':'lock timeout','identity':'Expected old lock identity mismatch'}
 COLD_STARTUP_DENY="""import asyncio
 from model_generator.web.app import create_default_app
 async def probe():
@@ -240,6 +241,11 @@ networks:
             if value['Config']['Labels'].get('com.axis.model-generator.cold-proof')!=self.project:
                 raise ValueError('Foreign DB probe container denied')
             self.run(['docker','rm','-f',name])
+    @staticmethod
+    def denied(error,reason):
+        # A deny gate proves nothing unless the reset stopped for its own reason.
+        if reason not in (error.stderr or ''):
+            raise AssertionError('Offline reset was denied for another reason; expected '+reason) from error
     def db_negative(self,kind,expected):
         dsn=self.runtime/'secrets/runtime'/('worker_dsn' if kind=='runtime' else 'migrator_dsn')
         lock_code="con.execute('SELECT pg_advisory_lock(736421)');" if kind=='advisory' else "con.execute('SELECT singleton FROM mg.api_lock_identity FOR UPDATE');" if kind=='row' else ''
@@ -249,7 +255,7 @@ networks:
         try:
             assert process.stdout.readline().strip()=='ready'
             try:self.reset(expected)
-            except subprocess.CalledProcessError:pass
+            except subprocess.CalledProcessError as error:self.denied(error,DENY_REASONS[kind])
             else:raise AssertionError('Actual PostgreSQL offline deny gate failed')
             assert self.identity()==list(expected)
         finally:
@@ -290,7 +296,7 @@ networks:
         assert json.loads(self.oneoff(S3_SNAPSHOT))==s3_before
         self.db_negative('runtime',expected);self.db_negative('advisory',expected);self.db_negative('row',expected)
         try:self.reset((expected[0],expected[1]+1,expected[2]))
-        except subprocess.CalledProcessError:pass
+        except subprocess.CalledProcessError as error:self.denied(error,DENY_REASONS['identity'])
         else:raise AssertionError('Wrong old DB identity unexpectedly accepted')
         assert self.identity()==list(expected)
         self.reset(expected);self.reset(expected)
@@ -353,7 +359,7 @@ networks:
             assert (row[1] is not None)==(mode=='checkpoint')
             if mode=='checkpoint':
                 objects=json.loads(self.oneoff(S3_SNAPSHOT))
-                for name in ('artifact','previewInput','thumbnail'):
+                for name in ('artifact','previewInput','thumbnail','model'):
                     if name in row[1]:
                         descriptor=row[1][name]
                         assert objects[descriptor['key']]==descriptor['sha256']
