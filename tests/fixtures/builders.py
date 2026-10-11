@@ -56,7 +56,7 @@ def png_bytes(width=256, height=256, depth=8, color=2, transparency=False):
     return image + chunk(b"IEND", b"")
 
 
-def scene_bytes(indices=(0, 1, -3), vertices=(0, 0, 0, 1, 0, 0, 0, 1, 0), texture=True):
+def scene_bytes(indices=(0, 1, -3), vertices=(0, 0, 0, 1, 0, 0, 0, 1, 0), texture=True, axes=False):
     objects = [("Geometry", [prop("L", 1), prop("S", "Mesh"), prop("S", "Mesh")], [
         ("Vertices", [prop("d", vertices)], []), ("PolygonVertexIndex", [prop("i", indices)], [])]),
         ("Model", [prop("L", 2), prop("S", "Building"), prop("S", "Mesh")], [
@@ -71,5 +71,8 @@ def scene_bytes(indices=(0, 1, -3), vertices=(0, 0, 0, 1, 0, 0, 0, 1, 0), textur
                   ("C", [prop("S", "OP"), prop("L", 4), prop("L", 5), prop("S", "DiffuseColor")], []),
                   ("C", [prop("S", "OO"), prop("L", 5), prop("L", 2)], [])]
     return fbx_bytes([("GlobalSettings", [], [("Properties70", [], [
-        ("P", [prop("S", "UnitScaleFactor"), prop("S", "double"), prop("S", ""), prop("S", ""), prop("D", 100)], [])])]),
+        ("P", [prop("S", "UnitScaleFactor"), prop("S", "double"), prop("S", ""), prop("S", ""), prop("D", 100)], []),
+        *[("P", [prop("S", key), prop("S", "int"), prop("S", ""), prop("S", ""), prop("I", value)], [])
+          for key, value in (("UpAxis", 2), ("UpAxisSign", 1), ("FrontAxis", 1), ("FrontAxisSign", -1),
+                             ("CoordAxis", 0), ("CoordAxisSign", 1)) if axes]])]),
         ("Objects", [], objects), ("Connections", [], links)])

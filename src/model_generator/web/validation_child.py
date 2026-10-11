@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from model_generator import __version__
 from model_generator.input_descriptor import input_filename
-from model_generator.validator import validate_path
+from model_generator.validator import validate_fbx_path, validate_path
 from model_generator.limits import Limits, ReadError
 from model_generator.diagnostics import Report, Finding
 from model_generator.package_validator import validate_package_path
@@ -46,9 +46,13 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
         raise ValueError('Unsafe child input')
     preview_path=None
     preview_reason=None
-    if kind == 'zip-fbx':
+    if kind in {'zip-fbx', 'fbx'}:
+        if kind == 'fbx':
+            # Standalone FBX is never stored under the legacy ZIP transport name.
+            if input_path.name != 'input.bin': raise ValueError('Unsafe child input')
+            preview_reason = 'preview_unsupported'
         try:
-            report = validate_path(input_path, Limits(input_bytes=settings.input_bytes, expanded_bytes=settings.expanded_bytes,
+            report = (validate_fbx_path if kind == 'fbx' else validate_path)(input_path, Limits(input_bytes=settings.input_bytes, expanded_bytes=settings.expanded_bytes,
                                                     member_bytes=settings.member_bytes, fbx_array_bytes=64 * 1024**2), observer=observer)
         except ReadError as error:
             sha = hashlib.sha256()
@@ -87,7 +91,7 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
 
 def main():
     parser = argparse.ArgumentParser(allow_abbrev=False)
-    parser.add_argument('--kind', choices=('zip-fbx', 'portable-package'), required=True)
+    parser.add_argument('--kind', choices=('zip-fbx', 'portable-package', 'fbx'), required=True)
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--descriptor-version', type=int, choices=(0, 1), default=0)
     parser.add_argument('--input-hash')

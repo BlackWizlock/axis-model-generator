@@ -32,7 +32,7 @@ function setInputFormats(rows){
  state.inputFormats=rows;state.limits.inputFormats=rows;
  const extensions=allowedExtensions(rows);byId('input-file').setAttribute('accept',extensions);byId('input-file').disabled=!extensions;
  const select=byId('input-kind'),selected=select.value;
- const labels={'portable-package':'Переносимый пакет v1','zip-fbx':'ZIP с FBX'};
+ const labels={'portable-package':'Переносимый пакет v1','zip-fbx':'ZIP с FBX','fbx':'FBX'};
  select.replaceChildren(...rows.filter(row=>row.upload).map(row=>{const option=element('option',labels[row.id]||row.id.toUpperCase());option.value=row.id;return option;}));
  select.value=rows.find(row=>row.upload&&row.id===selected)?.id||rows.find(row=>row.upload)?.id||'';
  byId('input-format-reasons').replaceChildren();

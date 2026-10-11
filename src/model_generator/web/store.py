@@ -13,7 +13,7 @@ from dataclasses import replace
 from uuid import uuid4
 from psycopg.types.json import Jsonb
 from ..input_descriptor import input_filename, make_descriptor
-from ..input_formats import require_diagnostics
+from ..input_formats import DESCRIPTOR_ONLY, require_diagnostics
 from .security import ApiError
 from .s3_store import ObjectStore,ObjectIntent
 
@@ -79,6 +79,7 @@ class Storage:
         try:
             basename=input_filename(descriptor_version)
             require_diagnostics(kind)
+            if kind in DESCRIPTOR_ONLY and descriptor_version!=1: raise ValueError
             if not isinstance(display_name,str): raise ValueError
             name=unicodedata.normalize('NFC',display_name)
             if not 1<=len(name.encode('utf-8'))<=160 or any(unicodedata.category(c).startswith('C') for c in name): raise ValueError

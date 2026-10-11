@@ -174,3 +174,23 @@ class CrashBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'Interrupted HTTP fixture exited before ready signal .exit 1.'):
             proof.interrupted_ready()
         self.assertIn('exit=1',proof.interrupt_failure);self.assertIn('HTTP authentication denied',proof.interrupt_failure)
+    def test_failure_record_names_command_exit_and_output_without_embedded_code(self):
+        import subprocess
+        spec=importlib.util.spec_from_file_location('cold_record',ROOT/'scripts/ci-web-cold-recovery.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        proof=object.__new__(module.Proof);proof.phase='cold-queued-chunks'
+        code='import json\nprint(1)'
+        try:raise subprocess.CalledProcessError(1,['docker','inspect','abc123'],output='',stderr='Error: No such object: abc123\n')
+        except subprocess.CalledProcessError as error:proof.record(error)
+        self.assertIn('Cold failure: CalledProcessError; phase=cold-queued-chunks',proof.failure)
+        self.assertIn('Command: docker inspect abc123',proof.failure)
+        self.assertIn('Exit: 1',proof.failure);self.assertIn('stderr: Error: No such object: abc123',proof.failure)
+        self.assertIn('test_cold_proof_fixture.py:',proof.failure)
+        with patch.object(module.subprocess,'run',return_value=SimpleNamespace(returncode=3,stdout='',stderr='denied')):
+            try:proof.run(['docker','run','python','-c',code])
+            except RuntimeError as error:proof.record(error)
+        self.assertIn('Command: docker run python -c <'+str(len(code))+' chars>',proof.failure)
+        self.assertIn('Exit: 3',proof.failure);self.assertNotIn('print(1)',proof.failure)
+        try:raise AssertionError('state mismatch')
+        except AssertionError as error:proof.record(error)
+        self.assertIn('Message: state mismatch',proof.failure);self.assertNotIn('Command:',proof.failure)

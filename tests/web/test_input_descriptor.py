@@ -13,6 +13,8 @@ class DescriptorTests(unittest.TestCase):
     def test_descriptor(self):
         self.assertEqual(make_descriptor('zip-fbx', 'модель.zip', 1, 'a' * 64),
             dict(version=1, kind='zip-fbx', displayName='модель.zip', bytes=1, sha256='a' * 64))
+        self.assertEqual(make_descriptor('fbx', 'дом.fbx', 2, 'b' * 64),
+            dict(version=1, kind='fbx', displayName='дом.fbx', bytes=2, sha256='b' * 64))
         with self.assertRaisesRegex(ValueError, 'engine_unavailable'):
             make_descriptor('rvt', 'модель.rvt', 1, 'a' * 64)
 

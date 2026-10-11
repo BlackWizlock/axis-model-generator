@@ -2,7 +2,8 @@ import json
 import unittest
 from fixtures.builders import fbx_bytes, scene_bytes, zip_bytes
 from model_generator.profiles import check_image
-from model_generator.validator import validate_bytes
+from model_generator.limits import Limits
+from model_generator.validator import validate_bytes, validate_fbx_bytes
 
 
 class ValidatorTests(unittest.TestCase):
@@ -34,6 +35,52 @@ class ValidatorTests(unittest.TestCase):
         self.assertIn("package.fbx_count", [f.rule_id for f in empty.findings if f.status == "fail"])
         missing_ground = validate_bytes(zip_bytes([("a.fbx", scene_bytes()), ("b.fbx", scene_bytes())]))
         self.assertIn("package.ground", [f.rule_id for f in missing_ground.findings])
+
+    def test_standalone_fbx_reads_placed_scene_without_package_rules(self):
+        report = validate_fbx_bytes(scene_bytes(axes=True))
+        scene = next(f for f in report.findings if f.rule_id == "fbx.scene")
+        self.assertEqual(scene.status, "pass")
+        self.assertEqual(scene.actual, {"meshes": 1, "triangles": 1, "unit_meters": 1.0,
+                                        "bounds": [[10.0, 0.0, 0.0], [11.0, 1.0, 0.0]]})
+        self.assertFalse(report.has_failures())
+        self.assertEqual([f["read_status"] for f in report.files], ["read"])
+        self.assertFalse(any(f.rule_id.startswith(("package.", "zip.")) for f in report.findings))
+        self.assertEqual(report.coverage["technical"], "partial")
+        json.loads(report.to_json())
+
+    def test_standalone_fbx_unknown_role_warns_inside_ground_range(self):
+        from unittest.mock import patch
+        from model_generator import validator
+        real = validator.inspect_fbx
+        for triangles, status in ((150000, "pass"), (150001, "warn"), (180000, "warn"), (180001, "fail")):
+            def counted(tree, name, triangles=triangles):
+                measurements, findings = real(tree, name)
+                return {**measurements, "triangles": triangles}, findings
+            with self.subTest(triangles=triangles), patch.object(validator, "inspect_fbx", counted):
+                report = validate_fbx_bytes(scene_bytes(axes=True))
+                self.assertEqual(next(f for f in report.findings if f.rule_id == "profile.triangles").status, status)
+                packed = validate_bytes(zip_bytes([("a.fbx", scene_bytes()), ("a_Ground.fbx", scene_bytes())]))
+                self.assertEqual({f.status for f in packed.findings if f.rule_id == "profile.triangles"},
+                                 {"pass"} if triangles <= 150000 else {"pass", "fail"} if triangles <= 180000 else {"fail"})
+
+    def test_standalone_fbx_reader_limit_is_not_a_model_defect(self):
+        report = validate_fbx_bytes(scene_bytes())
+        scene = next(f for f in report.findings if f.rule_id == "fbx.scene")
+        self.assertEqual(scene.status, "not_checked")
+        self.assertFalse(report.has_failures())
+
+    def test_standalone_fbx_failures_stay_failures(self):
+        for data, limits, rule, status in ((b"not-fbx", None, "fbx.unsupported", "unsupported"),
+                                           (scene_bytes(axes=True)[:60], None, "fbx.integrity", "failed"),
+                                           (fbx_bytes([], 7500), None, "fbx.unsupported", "unsupported"),
+                                           (scene_bytes(axes=True), Limits(fbx_array_bytes=8), "fbx.budget", "failed")):
+            with self.subTest(rule=rule, status=status):
+                report = validate_fbx_bytes(data, limits)
+                self.assertTrue(report.has_failures())
+                self.assertEqual(report.files[0]["read_status"], status)
+                self.assertNotIn("fbx.scene", [f.rule_id for f in report.findings])
+                if rule:
+                    self.assertIn(rule, [f.rule_id for f in report.findings if f.status == "fail"])
 
     def test_profile_png_boundaries_and_exceptions(self):
         base = {"width": 256, "height": 256, "bit_depth": 8, "alpha": False, "bytes": 100}

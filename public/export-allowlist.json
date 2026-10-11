@@ -46,6 +46,10 @@
       "export": "src/model_generator/fbx_inspection.py"
     },
     {
+      "source": "src/model_generator/fbx_scene.py",
+      "export": "src/model_generator/fbx_scene.py"
+    },
+    {
       "source": "src/model_generator/limits.py",
       "export": "src/model_generator/limits.py"
     },
@@ -108,6 +112,10 @@
     {
       "source": "tests/test_fbx_inspection.py",
       "export": "tests/test_fbx_inspection.py"
+    },
+    {
+      "source": "tests/test_fbx_scene.py",
+      "export": "tests/test_fbx_scene.py"
     },
     {
       "source": "tests/test_package_reader.py",
@@ -968,6 +976,10 @@
     {
       "source": "src/model_generator/web/migrations/010-input-descriptor.sql",
       "export": "src/model_generator/web/migrations/010-input-descriptor.sql"
+    },
+    {
+      "source": "src/model_generator/web/migrations/011-fbx-input-kind.sql",
+      "export": "src/model_generator/web/migrations/011-fbx-input-kind.sql"
     },
     {
       "source": "tests/web/test_input_formats.py",

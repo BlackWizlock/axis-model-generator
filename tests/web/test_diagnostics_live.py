@@ -101,6 +101,28 @@ class DiagnosticContractTests(unittest.TestCase):
                     self.assertFalse(any(state=='passed' for code,state in states.items() if code.startswith('fbx.')))
                 else: self.assertEqual(states['package.unsupported'],'failed')
 
+    def test_standalone_fbx_checklist_has_no_archive_or_package_rows(self):
+        import hashlib
+        from fixtures.builders import scene_bytes
+        from model_generator.web.validation_child import validate_input,ChildSettings
+        from model_generator.web.progress import Observer
+        from model_generator.web.checklist import applicable,presentation
+        rows=applicable('fbx')
+        self.assertIn('input.fbx',rows); self.assertIn('fbx.scene',rows); self.assertIn('ids_validation',rows)
+        self.assertFalse(any(code=='input.archive' or code.startswith(('zip.','package.','scene.')) for code in rows))
+        self.assertNotIn('fbx.scene',applicable('zip-fbx'))
+        for axes,expected in ((True,'passed'),(False,'not_checked')):
+            with self.subTest(axes=axes),tempfile.TemporaryDirectory() as tmp:
+                wire=scene_bytes(axes=axes); root=Path(tmp); (root/'input.bin').write_bytes(wire)
+                observer=Observer(root,hashlib.sha256(wire).hexdigest(),'a'*32)
+                report=validate_input(root/'input.bin','fbx',ChildSettings(root),observer).report
+                job={'id':'b'*32,'input_sha256':report['input_sha256'],'worker_epoch':'a'*32,'input_kind':'fbx','state':'completed','coverage':report['coverage'],'updated_at':100}
+                states={row['id']:row['state'] for row in presentation(job,report=report)['checks']}
+                self.assertEqual(states['fbx.scene'],expected)
+                self.assertEqual(states['fbx.integrity'],'passed')
+                self.assertNotIn('failed',states.values())
+                self.assertNotIn('input.archive',states)
+
     def test_catalog_gives_condition_specific_recovery(self):
         from model_generator.web.diagnostic_catalog import rule_help,RULE_RECOVERY,KNOWN_CHECKS
         self.assertEqual(set(RULE_RECOVERY),set(KNOWN_CHECKS))
