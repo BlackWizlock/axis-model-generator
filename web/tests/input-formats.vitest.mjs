@@ -1,5 +1,5 @@
 import {expect, test} from 'vitest';
-import {allowedExtensions, acceptsFile} from '../src/input-formats.js';
+import {allowedExtensions, acceptsFile, kindForFile} from '../src/input-formats.js';
 test('unavailable native engines do not enter upload allowlist', () => {
   const rows = [{id:'zip-fbx', extensions:['.zip'], upload:true},
     {id:'rvt', extensions:['.rvt'], upload:false}];
@@ -13,6 +13,15 @@ test('standalone FBX is accepted only under its own kind', () => {
   expect(acceptsFile({name:'HOUSE.FBX'}, 'fbx', rows)).toBe(true);
   expect(acceptsFile({name:'house.fbx'}, 'zip-fbx', rows)).toBe(false);
   expect(acceptsFile({name:'house.zip'}, 'fbx', rows)).toBe(false);
+});
+test('a file picks its kind only when the current kind does not accept it', () => {
+  const rows = [{id:'portable-package', extensions:['.zip'], upload:true}, {id:'zip-fbx', extensions:['.zip'], upload:true},
+    {id:'fbx', extensions:['.fbx'], upload:true}, {id:'rvt', extensions:['.rvt'], upload:false}];
+  expect(kindForFile({name:'HOUSE.FBX'}, 'portable-package', rows)).toBe('fbx');
+  expect(kindForFile({name:'site.zip'}, 'fbx', rows)).toBe('zip-fbx');
+  expect(kindForFile({name:'site.zip'}, 'portable-package', rows)).toBe('portable-package');
+  expect(kindForFile({name:'model.rvt'}, 'fbx', rows)).toBe('fbx');
+  expect(kindForFile({name:'site.zip'}, 'fbx', null)).toBe('fbx');
 });
 
 import {api, ApiError} from '../src/api.js';

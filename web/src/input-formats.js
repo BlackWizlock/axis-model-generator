@@ -22,6 +22,13 @@ export function acceptsFile(file, kind, rows) {
   const row = uploadRows(rows).find(item => item.id === kind);
   return !!row && row.extensions.some(extension => file.name.toLowerCase().endsWith(extension));
 }
+// The kind that fits a chosen file: the current one when it accepts the file,
+// otherwise the accepted kind of that extension (a ZIP is taken as ZIP with FBX).
+export function kindForFile(file, kind, rows) {
+  if (acceptsFile(file, kind, rows)) return kind;
+  const fits = uploadRows(rows).filter(row => acceptsFile(file, row.id, rows));
+  return (fits.find(row => row.id === 'zip-fbx') || fits[0])?.id || kind;
+}
 export function unavailableFormatText() {
   return 'Выберите FBX, ZIP с FBX или переносимый пакет v1.';
 }

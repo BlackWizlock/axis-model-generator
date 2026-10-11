@@ -31,6 +31,7 @@ from .blender_runner import _root,_input,THUMBNAIL_MAX_BYTES
 from .preview_runner import run_preview,preflight_preview,installed_preview_fingerprint
 from ..png_inspection import inspect_png
 from ..input_descriptor import input_filename, make_descriptor
+from ..reduced_model import MODEL_MAX_BYTES
 
 WORKER_LOCK = 0x4d47574f524b
 
@@ -158,7 +159,7 @@ def run_child(settings, scratch, kind, cancelled, *, descriptor_version: int = 0
             return None, 'validation_resource' if process.returncode < 0 or process.returncode in {70, 78} else 'validation_failed'
         try:
             message = json.loads(buffers[process.stdout].decode('utf-8', errors='strict'))
-            if set(message) != {'schema', 'tool', 'inputHash', 'report', 'previewInput', 'technicalFailure', 'failureCode'} or message['schema'] != 1 or message['technicalFailure'] is not False or message['failureCode'] not in {None,'preview_unsupported','preview_budget','preview_roundtrip_error'}:
+            if set(message) != {'schema', 'tool', 'inputHash', 'report', 'previewInput', 'model', 'technicalFailure', 'failureCode'} or message['schema'] != 1 or message['technicalFailure'] is not False or message['failureCode'] not in {None,'preview_unsupported','preview_budget','preview_roundtrip_error'}:
                 raise ValueError
             preview=message['previewInput']
             if preview is not None:
@@ -167,6 +168,18 @@ def run_child(settings, scratch, kind, cancelled, *, descriptor_version: int = 0
                 with _root(settings) as (root,descriptor):
                     _,digest=_input(root,descriptor,scratch/'preview-input.json',preview_limits)
                 if digest!=preview['sha256'] or (scratch/'preview-input.json').stat().st_size!=preview['bytes']:
+                    raise ValueError
+            model=message['model']
+            if model is not None:
+                if kind not in {'zip-fbx','fbx'} or set(model)!={'kind','bytes','sha256'} or model['kind']!='model' or type(model['bytes']) is not int or not 1<=model['bytes']<=MODEL_MAX_BYTES:
+                    raise ValueError
+                path = scratch / 'model.fbx'
+                if path.is_symlink() or not stat.S_ISREG(path.lstat().st_mode) or path.stat().st_size != model['bytes']:
+                    raise ValueError
+                digest = hashlib.sha256()
+                with path.open('rb') as stream:
+                    while chunk := stream.read(65536): digest.update(chunk)
+                if digest.hexdigest() != model['sha256']:
                     raise ValueError
             item = message['report']
             if set(item) != {'kind', 'bytes', 'sha256'} or item['kind'] != 'report' or isinstance(item['bytes'], bool) or not 1 <= item['bytes'] <= settings.report_max_bytes:
@@ -263,8 +276,8 @@ def _checked_input(job, upload):
 
 def _artifact_intent(db, job, size, sha, now, kind='report'):
     repo = JobRepository(db, db.settings)
-    suffix={'report':'report.json','preview':'preview-input.json','thumbnail':'thumbnail.png'}[kind]
-    cap={'report':db.settings.report_max_bytes,'preview':db.settings.preview_max_bytes,'thumbnail':THUMBNAIL_MAX_BYTES}[kind]
+    suffix={'report':'report.json','preview':'preview-input.json','thumbnail':'thumbnail.png','model':'model.fbx'}[kind]
+    cap={'report':db.settings.report_max_bytes,'preview':db.settings.preview_max_bytes,'thumbnail':THUMBNAIL_MAX_BYTES,'model':MODEL_MAX_BYTES}[kind]
     if type(size) is not int or not 1<=size<=cap: raise ValueError('Artifact budget exceeded')
     key = f"owners/{job['owner_id']}/jobs/{job['id']}/{job['worker_epoch']}/{suffix}"
     artifact = uuid4().hex
@@ -315,11 +328,12 @@ def _publish_file(db,objects,job,kind,path,size,sha):
 def _restore_checkpoint(db,objects,job,settings,scratch,expected):
     checkpoint=job['checkpoint']
     if (type(checkpoint) is not dict or checkpoint.get('schema')!=1 or checkpoint.get('fingerprint')!=expected
-            or checkpoint.get('inputHash')!=job['input_sha256'] or set(checkpoint)-{'schema','fingerprint','inputHash','artifact','previewInput','thumbnail'}):
+            or checkpoint.get('inputHash')!=job['input_sha256'] or set(checkpoint)-{'schema','fingerprint','inputHash','artifact','previewInput','thumbnail','model'}):
         raise ValueError('Checkpoint changed')
     for name,kind,filename,cap in [('artifact','report','report.json',settings.report_max_bytes),
                                   ('previewInput','preview','preview-input.json',settings.preview_max_bytes),
-                                  ('thumbnail','thumbnail','thumbnail.png',THUMBNAIL_MAX_BYTES)]:
+                                  ('thumbnail','thumbnail','thumbnail.png',THUMBNAIL_MAX_BYTES),
+                                  ('model','model','model.fbx',MODEL_MAX_BYTES)]:
         if name not in checkpoint:
             if name=='artifact' or (name=='previewInput' and 'thumbnail' in checkpoint): raise ValueError('Checkpoint missing')
             continue
@@ -332,7 +346,7 @@ def _restore_checkpoint(db,objects,job,settings,scratch,expected):
                 or (row['bytes'],row['sha256'],row['object_key'])!=(item['bytes'],item['sha256'],item['key'])
                 or item['key']!=f"owners/{job['owner_id']}/jobs/{job['id']}/{row['attempt_epoch']}/{filename}"):
             raise ValueError('Checkpoint intent changed')
-        _verified_download(objects,ObjectDescriptor(item['key'],item['bytes'],item['sha256'],'image/png' if kind=='thumbnail' else 'application/json'),scratch/filename,cap)
+        _verified_download(objects,ObjectDescriptor(item['key'],item['bytes'],item['sha256'],{'thumbnail':'image/png','model':'application/octet-stream'}.get(kind,'application/json')),scratch/filename,cap)
         if kind=='preview': decode_preview_json((scratch/filename).read_bytes(),PreviewLimits(settings.preview_max_instances,settings.preview_max_vertices,settings.preview_max_triangles,settings.preview_max_bytes))
         if kind=='thumbnail':
             png=inspect_png((scratch/filename).read_bytes())
@@ -417,8 +431,11 @@ def run_once(db, settings, epoch):
         preview=result['message']['previewInput']
         if preview is not None:
             artifacts.append(_publish_file(db,objects,job,'preview',scratch/'preview-input.json',preview['bytes'],preview['sha256']))
+        model=result['message']['model']
+        if model is not None:
+            model=_publish_file(db,objects,job,'model',scratch/'model.fbx',model['bytes'],model['sha256'])
         _journal_preview_failure(db,job,result['message']['failureCode'])
-        repo.checkpoint(job['id'],epoch,'preview' if preview else 'report',expected,artifacts,int(time.time()),result['message']['failureCode'])
+        repo.checkpoint(job['id'],epoch,'preview' if preview else 'report',expected,artifacts,int(time.time()),result['message']['failureCode'],model=model)
         checkpoint=_job(db,job['id'])['checkpoint']
         _preview_stage(db,objects,repo,job,settings,scratch,checkpoint)
         # Close/remove scratch before terminal acknowledgement; durable report is S3.
@@ -477,7 +494,7 @@ def recover(db, settings, epoch, now):
         if not valid:
             _clean_artifacts(db, objects, job['id'])
         else:
-            keep=[item['id'] for name,item in job['checkpoint'].items() if name in {'artifact','previewInput','thumbnail'}]
+            keep=[item['id'] for name,item in job['checkpoint'].items() if name in {'artifact','previewInput','thumbnail','model'}]
             _clean_artifacts(db,objects,job['id'],only_staging=True,keep=keep)
         with db.transaction() as con:
             repo._locks(con, job['owner_id'])

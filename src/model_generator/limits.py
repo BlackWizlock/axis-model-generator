@@ -14,6 +14,10 @@ class Limits:
     fbx_nodes: int = 100000
     fbx_properties: int = 1000
     fbx_array_bytes: int = 256 * 1024**2
+    dxf_bytes: int = 256 * 1024**2
+    dxf_pairs: int = 8_000_000
+    dxf_entities: int = 500_000
+    terrain_points: int = 200_000
 
 
 class ReadError(ValueError):

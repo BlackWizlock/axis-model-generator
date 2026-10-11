@@ -7,6 +7,14 @@ from model_generator.limits import Limits, ReadError
 from model_generator.fbx_scene import read_scene
 
 
+def placed(roots):
+    return [round(v, 9) + 0.0 for v in read_scene(roots).meshes[0].positions]
+
+
+def model_properties(roots):
+    return roots[1].children[1].child('Properties70').children
+
+
 def fixture():
     roots = parse_fbx(scene_bytes())
     settings = roots[0].child('Properties70')
@@ -49,21 +57,6 @@ class SceneTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ReadError):
                 read_scene(roots)
 
-    def test_nonidentity_rotation_scale_and_pivot_are_rejected(self):
-        for key, value in [('Lcl Rotation', [0, 0, 90]), ('Lcl Scaling', [2, 1, 1]),
-                           ('GeometricTranslation', [1, 0, 0]), ('RotationPivot', [1, 0, 0])]:
-            roots = fixture()
-            roots[1].children[1].child('Properties70').children.append(property_node(key, value))
-            with self.subTest(key=key), self.assertRaises(ReadError):
-                read_scene(roots)
-
-    def test_hierarchy_is_rejected_instead_of_flattened(self):
-        roots = fixture()
-        roots[1].children.append(Node('Model', [6, 'parent', 'Null'], []))
-        roots[2].children.append(Node('C', ['OO', 2, 6], []))
-        with self.assertRaises(ReadError):
-            read_scene(roots)
-
     def test_unplaced_geometry_is_rejected(self):
         roots = fixture()
         roots[2].children = [n for n in roots[2].children if n.props[1] != 1]
@@ -84,13 +77,12 @@ class SceneTests(unittest.TestCase):
         with self.assertRaises(ReadError):
             read_scene(roots)
 
-    def test_nonidentity_template_transform_is_not_ignored(self):
+    def test_template_transform_is_a_default_and_is_applied(self):
         roots = fixture()
         roots.append(Node('Definitions', [], [Node('ObjectType', ['Model'], [
             Node('PropertyTemplate', ['FbxNode'], [Node('Properties70', [], [
                 property_node('Lcl Scaling', [2, 2, 2])])])])]))
-        with self.assertRaises(ReadError):
-            read_scene(roots)
+        self.assertEqual(tuple(read_scene(roots).meshes[0].positions), (10, 0, 0, 12, 0, 0, 10, 2, 0))
 
     def test_material_polygon_mapping_is_preserved_and_checked(self):
         roots = fixture()
@@ -172,3 +164,186 @@ class SceneTests(unittest.TestCase):
         roots[0].child('Properties70').children[0].props[-1] = 1e308
         with self.assertRaises(ReadError):
             read_scene(roots)
+
+
+class TransformTests(unittest.TestCase):
+    def test_rotation_about_z_turns_the_mesh_before_translation(self):
+        roots = fixture()
+        model_properties(roots).append(property_node('Lcl Rotation', [0, 0, 90]))
+        self.assertEqual(placed(roots), [10, 0, 0, 10, 1, 0, 9, 0, 0])
+
+    def test_scaling_precedes_rotation(self):
+        roots = fixture()
+        model_properties(roots).extend([property_node('Lcl Rotation', [0, 0, 90]),
+                                        property_node('Lcl Scaling', [2, 3, 1])])
+        self.assertEqual(placed(roots), [10, 0, 0, 10, 2, 0, 7, 0, 0])
+
+    def test_euler_axes_apply_in_xyz_order_by_default(self):
+        roots = fixture()
+        model_properties(roots).append(property_node('Lcl Rotation', [90, 0, 90]))
+        # X first lifts the Y edge to Z; Z then turns the X edge to Y.
+        self.assertEqual(placed(roots), [10, 0, 0, 10, 1, 0, 10, 0, 1])
+
+    def test_rotation_order_applies_only_while_rotation_is_active(self):
+        roots = fixture()
+        model_properties(roots).extend([property_node('Lcl Rotation', [90, 0, 90]),
+                                        property_node('RotationOrder', [5])])
+        self.assertEqual(placed(roots), [10, 0, 0, 10, 1, 0, 10, 0, 1])
+        model_properties(roots).append(property_node('RotationActive', [1]))
+        # ZYX: Z first turns X to Y and Y to -X; X then lifts the turned X edge to Z.
+        self.assertEqual(placed(roots), [10, 0, 0, 10, 0, 1, 9, 0, 0])
+
+    def test_pre_and_post_rotation_wrap_the_local_rotation(self):
+        roots = fixture()
+        model_properties(roots).extend([property_node('RotationActive', [1]),
+                                        property_node('PreRotation', [0, 0, 90]),
+                                        property_node('PostRotation', [0, 0, 90])])
+        # The post rotation is inverted, so equal pre and post rotations cancel.
+        self.assertEqual(placed(roots), [10, 0, 0, 11, 0, 0, 10, 1, 0])
+        roots = fixture()
+        model_properties(roots).append(property_node('PreRotation', [0, 0, 90]))
+        self.assertEqual(placed(roots), [10, 0, 0, 11, 0, 0, 10, 1, 0])
+
+    def test_pivots_and_offsets_move_the_centre_of_rotation_and_scaling(self):
+        roots = fixture()
+        model_properties(roots).extend([property_node('Lcl Rotation', [0, 0, 90]),
+                                        property_node('RotationPivot', [1, 0, 0])])
+        self.assertEqual(placed(roots), [11, -1, 0, 11, 0, 0, 10, -1, 0])
+        roots = fixture()
+        model_properties(roots).extend([property_node('Lcl Scaling', [2, 2, 2]),
+                                        property_node('ScalingPivot', [1, 0, 0]),
+                                        property_node('RotationOffset', [0, 0, 5]),
+                                        property_node('ScalingOffset', [0, 3, 0])])
+        self.assertEqual(placed(roots), [9, 3, 5, 11, 3, 5, 9, 5, 5])
+
+    def test_geometric_transform_moves_geometry_but_not_children(self):
+        roots = fixture()
+        model_properties(roots).extend([property_node('GeometricTranslation', [0, 0, 4]),
+                                        property_node('GeometricScaling', [2, 1, 1])])
+        roots[1].children.append(Node('Model', [6, 'child', 'Mesh'], []))
+        roots[2].children.extend([Node('C', ['OO', 1, 6], []), Node('C', ['OO', 6, 2], [])])
+        scene = read_scene(roots)
+        self.assertEqual(tuple(scene.meshes[0].positions), (10, 0, 4, 12, 0, 4, 10, 1, 4))
+        self.assertEqual(tuple(scene.meshes[1].positions), (10, 0, 0, 11, 0, 0, 10, 1, 0))
+
+    def test_parent_chain_is_composed_through_empty_nodes(self):
+        roots = fixture()
+        roots[1].children.extend([
+            Node('Model', [6, 'parent', 'Null'], [Node('Properties70', [], [
+                property_node('Lcl Translation', [0, 0, 100]), property_node('Lcl Rotation', [0, 0, 90]),
+                property_node('InheritType', [1])])]),
+            Node('Model', [7, 'root', 'Null'], [Node('Properties70', [], [
+                property_node('Lcl Scaling', [2, 2, 2])])]),
+            Node('NodeAttribute', [8, 'parent', 'Null'], [])])
+        model_properties(roots).append(property_node('InheritType', [1]))
+        roots[2].children.extend([Node('C', ['OO', 2, 6], []), Node('C', ['OO', 6, 7], []),
+                                  Node('C', ['OO', 7, 0], []), Node('C', ['OO', 8, 6], [])])
+        self.assertEqual(placed(roots), [0, 20, 200, 0, 22, 200, -2, 20, 200])
+
+    def test_scale_inheritance_other_than_the_matrix_product_is_refused_under_a_scaled_ancestor(self):
+        for inherit, scale, accepted in ((0, [1, 1, 1], True), (0, [2, 2, 2], False),
+                                         (2, [2, 2, 2], False), (1, [2, 2, 2], True), (3, [1, 1, 1], False)):
+            roots = fixture()
+            roots[1].children.append(Node('Model', [6, 'parent', 'Null'], [Node('Properties70', [], [
+                property_node('Lcl Scaling', scale)])]))
+            model_properties(roots).append(property_node('InheritType', [inherit]))
+            roots[2].children.append(Node('C', ['OO', 2, 6], []))
+            with self.subTest(inherit=inherit, scale=scale):
+                if accepted:
+                    read_scene(roots)
+                else:
+                    with self.assertRaises(ReadError):
+                        read_scene(roots)
+
+    def test_cyclic_or_ambiguous_hierarchy_and_skeleton_nodes_are_refused(self):
+        roots = fixture()
+        roots[1].children.append(Node('Model', [6, 'parent', 'Null'], []))
+        roots[2].children.extend([Node('C', ['OO', 2, 6], []), Node('C', ['OO', 6, 2], [])])
+        with self.assertRaises(ReadError):
+            read_scene(roots)
+        roots = fixture()
+        roots[1].children.extend([Node('Model', [6, 'a', 'Null'], []), Node('Model', [7, 'b', 'Null'], [])])
+        roots[2].children.extend([Node('C', ['OO', 2, 6], []), Node('C', ['OO', 2, 7], [])])
+        with self.assertRaises(ReadError):
+            read_scene(roots)
+        roots = fixture()
+        roots[1].children.append(Node('Model', [6, 'bone', 'LimbNode'], []))
+        with self.assertRaises(ReadError):
+            read_scene(roots)
+        roots = fixture()
+        roots[1].children.append(Node('Model', [6, 'empty', 'Null'], []))
+        roots[2].children.append(Node('C', ['OO', 1, 6], []))
+        with self.assertRaises(ReadError):
+            read_scene(roots)
+
+    def test_y_up_scene_is_converted_to_z_up(self):
+        roots = fixture()
+        settings = {p.props[0]: p for p in roots[0].child('Properties70').children}
+        for key, value in (('UpAxis', 1), ('FrontAxis', 2), ('FrontAxisSign', 1)):
+            settings[key].props[4] = value
+        model_properties(roots)[0].props[4:] = [10, 7, 3]
+        # Source Y is height; source Z points to the viewer and becomes negative Y.
+        self.assertEqual(placed(roots), [10, -3, 7, 11, -3, 7, 10, -3, 8])
+        self.assertFalse(read_scene(roots).meshes[0].mirrored)
+
+    def test_left_handed_or_malformed_axes_are_refused(self):
+        for key, value in (('FrontAxisSign', 1), ('UpAxis', 0), ('CoordAxisSign', 2), ('UpAxis', 1.0)):
+            roots = fixture()
+            next(p for p in roots[0].child('Properties70').children if p.props[0] == key).props[4] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ReadError):
+                read_scene(roots)
+
+    def test_reflection_reverses_winding_and_singular_transform_is_refused(self):
+        roots = fixture()
+        model_properties(roots).append(property_node('Lcl Scaling', [-1, 1, 1]))
+        mesh = read_scene(roots).meshes[0]
+        self.assertTrue(mesh.mirrored)
+        self.assertEqual(tuple(mesh.triangles), (0, 2, 1))
+        self.assertEqual(tuple(mesh.positions), (10, 0, 0, 9, 0, 0, 10, 1, 0))
+        roots = fixture()
+        model_properties(roots).append(property_node('Lcl Scaling', [0, 1, 1]))
+        with self.assertRaises(ReadError):
+            read_scene(roots)
+
+    def test_malformed_transform_values_are_refused(self):
+        for key, value in (('Lcl Rotation', [0, 0]), ('Lcl Scaling', [1, float('nan'), 1]),
+                           ('RotationOrder', [6]), ('RotationOrder', [1.5]), ('RotationActive', [2])):
+            roots = fixture()
+            model_properties(roots).extend([property_node('RotationActive', [1])] if key == 'RotationOrder' else [])
+            model_properties(roots).append(property_node(key, value))
+            with self.subTest(key=key, value=value), self.assertRaises(ReadError):
+                read_scene(roots)
+
+
+class PolygonTests(unittest.TestCase):
+    def quad(self, indices=(0, 1, 2, -4, 0, 3, -5), materials=None):
+        roots = fixture()
+        geo = roots[1].children[0]
+        geo.child('Vertices').props[0] = [0, 0, 0, 2, 0, 0, 2, 2, 0, 0, 2, 0, 1, 3, 0]
+        geo.child('PolygonVertexIndex').props[0] = list(indices)
+        if materials:
+            roots[1].children.append(Node('Material', [6, 'other', ''], []))
+            roots[2].children.append(Node('C', ['OO', 6, 2], []))
+            geo.children.append(Node('LayerElementMaterial', [0], [
+                Node('MappingInformationType', ['ByPolygon'], []),
+                Node('ReferenceInformationType', ['IndexToDirect'], []),
+                Node('Materials', [list(materials)], [])]))
+        return roots
+
+    def test_convex_polygon_becomes_a_fan_and_materials_follow_each_triangle(self):
+        mesh = read_scene(self.quad(materials=(1, 0))).meshes[0]
+        self.assertEqual(tuple(mesh.triangles), (0, 1, 2, 0, 2, 3, 0, 3, 4))
+        self.assertEqual(tuple(mesh.material_indices), (1, 1, 0))
+
+    def test_concave_degenerate_and_short_polygons_are_refused(self):
+        for indices in ((0, 1, 4, 2, -4), (0, 1, 0, -2), (0, -2)):
+            with self.subTest(indices=indices), self.assertRaises(ReadError):
+                read_scene(self.quad(indices))
+
+    def test_fan_keeps_the_polygon_area(self):
+        mesh = read_scene(self.quad((0, 1, 2, 4, -4,))).meshes[0]
+        area = 0
+        for i in range(0, len(mesh.triangles), 3):
+            a, b, c = (mesh.positions[k * 3:k * 3 + 2] for k in mesh.triangles[i:i + 3])
+            area += ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2
+        self.assertAlmostEqual(area, 5)

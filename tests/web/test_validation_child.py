@@ -60,8 +60,27 @@ class NeutralInputTests(unittest.TestCase):
             self.assertEqual(states['fbx.scene'], 'pass')
             self.assertEqual(states['fbx.integrity'], 'pass')
             self.assertNotIn('package.fbx_count', states)
+            self.assertEqual(result.model_path, root / 'model.fbx')
+            self.assertEqual(result.report['reduced_model']['status'], 'built')
+            self.assertEqual(result.report['reduced_model']['output_triangles'], 1)
             with self.assertRaisesRegex(ValueError, 'Unsafe child input'):
                 validate_input(root / 'input.zip', 'fbx', ChildSettings(scratch=root))
+
+    def test_model_that_outlasts_its_time_keeps_the_report(self):
+        from unittest import mock
+        from fixtures.builders import scene_bytes
+        from model_generator.web import validation_child
+        build = validation_child.build_reduced_model
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+                validation_child, 'build_reduced_model', lambda *args: build(*args, cpu_seconds=-1.0)):
+            root = Path(directory)
+            (root / 'input.bin').write_bytes(scene_bytes(axes=True))
+            result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
+            states = {finding['rule_id']: finding['status'] for finding in result.report['findings']}
+            self.assertEqual(states['fbx.scene'], 'pass')
+            self.assertIsNone(result.model_path)
+            self.assertFalse((root / 'model.fbx').exists())
+            self.assertEqual(result.report['reduced_model'], {'status': 'not_built', 'reason': 'model_budget'})
 
     def test_corrupt_standalone_fbx_is_not_success(self):
         from fixtures.builders import scene_bytes
@@ -71,3 +90,6 @@ class NeutralInputTests(unittest.TestCase):
             result = validate_input(root / 'input.bin', 'fbx', ChildSettings(scratch=root))
             self.assertTrue(any(finding['status'] == 'fail' for finding in result.report['findings']))
             self.assertEqual(result.report['files'][0]['read_status'], 'failed')
+            self.assertIsNone(result.model_path)
+            self.assertFalse((root / 'model.fbx').exists())
+            self.assertEqual(result.report['reduced_model'], {'status': 'not_built', 'reason': 'model_unsupported'})
