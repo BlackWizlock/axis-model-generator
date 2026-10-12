@@ -7,7 +7,7 @@ export function previewReason(code){
   return reasons[code]||'Трёхмерный просмотр недоступен. Проверьте технический отчёт.';
 }
 export function validatePreview(value){
-  if(!value||value.schemaVersion!==1||!['synthetic','uploaded_package','reduced_model'].includes(value.provenance)||value.coordinates!=='processing-metres-rebased')throw new Error('Invalid preview contract');
+  if(!value||value.schemaVersion!==1||!['synthetic','uploaded_package','reduced_model','site_plan'].includes(value.provenance)||value.coordinates!=='processing-metres-rebased')throw new Error('Invalid preview contract');
   if(!vector(value.origin)||!vector(value.bounds?.min)||!vector(value.bounds?.max)||value.bounds.min.some((n,i)=>n>value.bounds.max[i]))throw new Error('Invalid preview bounds');
   if(!Number.isSafeInteger(value.vertexCount)||value.vertexCount<3||value.vertexCount>MAX_VERTICES||!Number.isSafeInteger(value.triangleCount)||value.triangleCount<1||value.triangleCount>MAX_TRIANGLES)throw new Error('Preview budget exceeded');
   if(!Array.isArray(value.positions)||value.positions.length!==value.vertexCount*3||!Array.isArray(value.indices)||value.indices.length!==value.triangleCount*3)throw new Error('Invalid preview counts');
@@ -93,7 +93,7 @@ export function mountPreview(container,document,model=null){
   const grid=new THREE.GridHelper(radius*4,20,0x455366,0x2e3845);grid.rotation.x=Math.PI/2;grid.position.set(center.x,center.y,preview.bounds.min[2]-radius*0.02);scene.add(grid);
   const reset=()=>{const aspect=Math.max(camera.aspect,0.01);const distance=radius/Math.sin(THREE.MathUtils.degToRad(camera.fov/2))/Math.min(aspect,1)*1.25;camera.near=Math.max(distance/10000,0.00001);camera.far=distance+radius*20;camera.position.copy(center).add(new THREE.Vector3(1,-1.5,1).normalize().multiplyScalar(distance));camera.updateProjectionMatrix();controls.target.copy(center);controls.update();};
   const resize=()=>{if(disposed)return;const width=Math.max(container.clientWidth,1),height=Math.max(container.clientHeight,1);renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio||1,2));renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();};
-  const label=preview.provenance==='synthetic'?'Синтетическая демонстрация геометрии':preview.provenance!=='reduced_model'?'Проверенная геометрия вашего пакета, нейтральные материалы':textured?'Упрощённая модель из вашего FBX с текстурами исходника':'Упрощённая модель из вашего FBX, нейтральные материалы';
+  const label=preview.provenance==='synthetic'?'Синтетическая демонстрация геометрии':preview.provenance==='site_plan'?'Линии генплана с высотами из вашего DWG':preview.provenance!=='reduced_model'?'Проверенная геометрия вашего пакета, нейтральные материалы':textured?'Упрощённая модель из вашего FBX с текстурами исходника':'Упрощённая модель из вашего FBX, нейтральные материалы';
   renderer.domElement.setAttribute('role','img');renderer.domElement.setAttribute('aria-label',label);
   const contextLost=event=>{event.preventDefault();renderer.setAnimationLoop(null);container.textContent=previewReason('webgl_unavailable');};
   renderer.domElement.addEventListener('webglcontextlost',contextLost);container.replaceChildren(renderer.domElement);resize();reset();

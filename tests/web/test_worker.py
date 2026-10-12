@@ -654,6 +654,21 @@ class ChildControlTests(unittest.TestCase):
             self.assertEqual(item,{'kind':'model','bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
             self.assertEqual(result['report']['reduced_model']['status'],'built')
 
+    def test_guarded_child_reads_a_drawing_with_the_installed_converter(self):
+        # The drawing ships with the converter; the guard must let the child run it.
+        from web.helpers import settings_for
+        sample=Path('/opt/dwg-samples/Polyline.dwg')
+        self.assertTrue(sample.is_file(),'Converter samples are part of the test image')
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch=Path(tmp); (scratch/'input.bin').write_bytes(sample.read_bytes())
+            result,code=run_child(settings_for(scratch),scratch,'dwg',lambda:False,descriptor_version=1)
+            self.assertIsNone(code)
+            rules={f['rule_id'] for f in result['report']['findings']}
+            # Read by the converter: whatever is refused, it is not the converter or the format.
+            self.assertFalse(rules&{'dwg.converter','dwg.convert','dwg.format','dwg.budget'},rules)
+            self.assertTrue(rules&{'plan.heights','dxf.units','dxf.unsupported','dxf.integrity'},rules)
+            self.assertIsNone(result['message']['model'])
+
     def test_neutral_version_uses_real_guarded_reader(self):
         from web.helpers import settings_for
         with tempfile.TemporaryDirectory() as tmp:

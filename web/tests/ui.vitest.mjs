@@ -104,7 +104,7 @@ test('server matrix blocks RVT and malformed config before hash or any POST/job'
  globalThis.Worker=class{constructor(){hashes++;}};globalThis.fetch=async()=>{requests++;throw new Error('unexpected request');};
  const rows=[{id:'rvt',extensions:['.rvt'],upload:false,diagnostics:false,preview:false,generation:false,reason:'engine_unavailable'}];
  try{
-  await assert.rejects(uploadFile({name:'MODEL.RVT',size:10},'rvt','csrf',()=>{},new AbortController().signal,{inputFormats:rows}),error=>error.message==='Выберите FBX, ZIP с FBX или переносимый пакет v1.');
+  await assert.rejects(uploadFile({name:'MODEL.RVT',size:10},'rvt','csrf',()=>{},new AbortController().signal,{inputFormats:rows}),error=>error.message==='Выберите FBX, ZIP с FBX, DWG генплана или переносимый пакет v1.');
   await assert.rejects(uploadFile({name:'MODEL.ZIP',size:10},'zip-fbx','csrf',()=>{},new AbortController().signal,{inputFormats:null}));
   await assert.rejects(uploadFile({name:'MODEL.FBX',size:10},'fbx','csrf',()=>{},new AbortController().signal));
   assert.equal(hashes,0);assert.equal(requests,0);assert.equal(UPLOAD_CAP,256*1024*1024);assert.equal(CHUNK_BYTES,8*1024*1024);

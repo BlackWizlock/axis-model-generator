@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from model_generator import __version__
 from model_generator.input_descriptor import input_filename
-from model_generator.validator import validate_fbx_path, validate_path
+from model_generator.validator import read_fbx_path, validate_path
 from model_generator.limits import Limits, ReadError
 from model_generator.diagnostics import Report, Finding
 from model_generator.package_validator import validate_package_path
@@ -20,6 +20,18 @@ from model_generator.package_manifest import PackageError
 from .preview import PreviewError,PreviewLimits,build_mesh_preview,build_preview,write_preview
 from model_generator.reduced_model import REPORT_CPU_MARGIN, cpu_left, reduce_input, stopped_after
 from model_generator.simplify import OverBudget
+from model_generator.dwg_convert import dwg_to_dxf
+from model_generator.site_plan import PLAN_NAME, inspect_plan
+from .process_guard import VALIDATION_FILE_BYTES
+
+# The converter is a separate installed program, never linked into this package.
+DWG_CONVERTER = '/usr/local/lib/libredwg/dwg2dxf'
+DWG_SECONDS = 60
+# The converter writes stray bytes into text fields on some runs and the result is
+# then not a DXF. Measured on a real site plan: one run in three. Geometry of the
+# runs that read is identical, so a refused result is converted again.
+DWG_ATTEMPTS = 6
+PLAN_COVERAGE = {'technical': 'partial', 'profile': 'research', 'procedure': 'unknown', 'external': 'not_checked'}
 
 # The view of a reduced model is attempted only while the process has this
 # many seconds of its own processor limit left: the report must not be lost
@@ -42,6 +54,7 @@ class ChildSettings:
     report_bytes: int = 4 * 1024**2
     report_findings: int = 10000
     preview_limits: PreviewLimits = PreviewLimits()
+    dwg_converter: object = DWG_CONVERTER
 
 
 @dataclass(frozen=True)
@@ -68,13 +81,17 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
             if input_path.name != 'input.bin': raise ValueError('Unsafe child input')
         preview_reason = 'preview_unsupported'
         limits = Limits(input_bytes=settings.input_bytes, expanded_bytes=settings.expanded_bytes,
-                        member_bytes=settings.member_bytes, fbx_array_bytes=64 * 1024**2)
+                        member_bytes=settings.member_bytes, fbx_array_bytes=192 * 1024**2)
         try:
-            report = (validate_fbx_path if kind == 'fbx' else validate_path)(input_path, limits, observer=observer)
-            # The reduced file is built from the same accepted bytes; a source
-            # the scene reader cannot read gives no file and a stated reason.
-            with input_path.open('rb') as stream: wire=stream.read(settings.input_bytes+1)
-            if len(wire)>settings.input_bytes: raise ValueError('Input budget changed')
+            # A standalone FBX is read once: the scene of its report is the
+            # scene the reduced file is built from.
+            report,wire = read_fbx_path(input_path, limits, observer=observer) if kind == 'fbx' \
+                else (validate_path(input_path, limits, observer=observer), None)
+            if wire is None:
+                # The reduced file is built from the same accepted bytes; a source
+                # the scene reader cannot read gives no file and a stated reason.
+                with input_path.open('rb') as stream: wire=stream.read(settings.input_bytes+1)
+                if len(wire)>settings.input_bytes: raise ValueError('Input budget changed')
             model,model_facts,meshes=reduce_input(wire,kind,limits)
             del wire
             if model is not None:
@@ -112,6 +129,38 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
             report = Report(sha.hexdigest(), profile={'status': 'research', 'normative_readiness': False},
                             coverage={'technical': 'partial', 'profile': 'research', 'procedure': 'unknown', 'external': 'not_checked'},
                             findings=[Finding(error.rule, 'fail', '', None, None, str(error))])
+    elif kind == 'dwg':
+        if input_path.name != 'input.bin': raise ValueError('Unsafe child input')
+        # The drawing and its DXF are files of this process: a larger one is a budget finding, not a failed write.
+        limits = Limits(input_bytes=settings.input_bytes, dxf_bytes=VALIDATION_FILE_BYTES)
+        with input_path.open('rb') as stream: wire=stream.read(settings.input_bytes+1)
+        if len(wire)>settings.input_bytes: raise ValueError('Input budget changed')
+        report = Report(hashlib.sha256(wire).hexdigest(), profile={'status': 'research', 'normative_readiness': False},
+                        coverage=dict(PLAN_COVERAGE))
+        preview_reason = 'preview_unsupported'
+        if observer: observer('input.dwg', 'checking')
+        try:
+            for attempt in range(DWG_ATTEMPTS):
+                dxf = dwg_to_dxf(wire, limits, program=settings.dwg_converter, timeout=DWG_SECONDS, workdir=settings.scratch)
+                try:
+                    facts, findings, mesh = inspect_plan(dxf, limits)
+                    break
+                except ReadError as error:
+                    if error.rule != 'dxf.integrity' or attempt == DWG_ATTEMPTS - 1: raise
+            del wire, dxf
+            report.files.append(facts)
+            report.findings.extend(findings)
+            try:
+                candidate=settings.scratch/'preview-input.json'
+                write_preview(build_mesh_preview([mesh],settings.preview_limits,'site_plan'),candidate,settings.preview_limits)
+                preview_path=candidate
+                preview_reason=None
+            except PreviewError as error:
+                preview_reason=error.code
+        except ReadError as error:
+            report.files.append({'file': PLAN_NAME, 'read_status': 'failed'})
+            report.findings.append(Finding(error.rule, 'fail', PLAN_NAME, None, None, str(error)))
+        if observer: observer('input.dwg', 'passed', report.findings)
     elif kind == 'portable-package':
         limits=PackageLimits(input_bytes=settings.input_bytes,expanded_bytes=settings.expanded_bytes,member_bytes=settings.member_bytes)
         report=validate_package_path(input_path,limits,observer)
@@ -142,7 +191,7 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
 
 def main():
     parser = argparse.ArgumentParser(allow_abbrev=False)
-    parser.add_argument('--kind', choices=('zip-fbx', 'portable-package', 'fbx'), required=True)
+    parser.add_argument('--kind', choices=('zip-fbx', 'portable-package', 'fbx', 'dwg'), required=True)
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--descriptor-version', type=int, choices=(0, 1), default=0)
     parser.add_argument('--input-hash')

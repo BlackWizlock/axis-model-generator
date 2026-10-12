@@ -31,15 +31,18 @@ def dwg_to_dxf(data, limits=None, program='dwg2dxf', timeout=120, workdir=None):
         source, target = Path(folder) / 'input.dwg', Path(folder) / 'output.dxf'
         source.write_bytes(data)
         try:
-            result = subprocess.run([*command, '-y', '-o', str(target), str(source)], cwd=folder,
-                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, timeout=timeout)
+            # A confined caller may not open /dev/null: the converter talks to a file beside its input.
+            with open(Path(folder) / 'converter.log', 'w+b') as log:
+                result = subprocess.run([*command, '-y', '-o', str(target), str(source)], cwd=folder,
+                                        stdin=log, stdout=log, stderr=log, timeout=timeout)
         except subprocess.TimeoutExpired:
             raise ReadError('dwg.budget', 'DWG conversion time budget exceeded') from None
         except OSError:
             raise ReadError('dwg.converter', 'DWG converter is not available') from None
-        if result.returncode or not target.is_file() or target.is_symlink():
-            raise ReadError('dwg.convert', 'DWG conversion failed')
-        if target.stat().st_size > limits.dxf_bytes:
+        written = target.is_file() and not target.is_symlink()
+        # A converter stopped by the caller's file size limit leaves a file cut at that limit.
+        if written and target.stat().st_size >= limits.dxf_bytes + (not result.returncode):
             raise ReadError('dwg.budget', 'Converted DXF size budget exceeded')
+        if result.returncode or not written:
+            raise ReadError('dwg.convert', 'DWG conversion failed')
         return target.read_bytes()

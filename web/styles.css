@@ -143,6 +143,8 @@ progress{display:block;width:100%;height:8px;accent-color:var(--primary);margin-
 .cube-icon{display:block;width:48px;height:48px;margin-inline:auto;stroke-width:1.25}
 .viewer-empty h3{font-size:var(--text-title);color:var(--foreground)}
 .viewer-empty p{font-size:var(--text-small);margin-top:10px}
+.scene-section{padding-block:128px;border-top:1px solid var(--border)}.scene-card{margin-top:40px;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:24px}.scene-plan{max-width:520px;margin-bottom:20px}.scene-row{border-top:1px solid var(--border);padding-block:20px}.scene-row-head{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:16px}.scene-row-head>div{flex:1 1 280px;min-width:0}.scene-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.scene-section .viewer-frame{margin-top:32px}
+@media(max-width:900px){.scene-section{padding-block:96px}.scene-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .viewer-caption{font-size:var(--text-small);line-height:1.8;color:var(--muted-foreground);margin-top:17px;max-width:920px}
 .report-panel{border:1px solid var(--border);border-radius:var(--radius-card);background:var(--card);padding:27px;margin-top:25px}
 .report-panel h2{font-size:var(--text-section-small)}

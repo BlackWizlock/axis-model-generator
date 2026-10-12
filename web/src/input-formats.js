@@ -30,7 +30,7 @@ export function kindForFile(file, kind, rows) {
   return (fits.find(row => row.id === 'zip-fbx') || fits[0])?.id || kind;
 }
 export function unavailableFormatText() {
-  return 'Выберите FBX, ZIP с FBX или переносимый пакет v1.';
+  return 'Выберите FBX, ZIP с FBX, DWG генплана или переносимый пакет v1.';
 }
 export function rejectedFileText() {
   return unavailableFormatText();

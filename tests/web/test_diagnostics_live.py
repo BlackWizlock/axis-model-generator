@@ -30,7 +30,7 @@ class DiagnosticContractTests(unittest.TestCase):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node,ast.Constant) and isinstance(node.value,str):
                     code=node.value
-                    if code.startswith(('package.','zip.','fbx.','png.','profile.')) and not code.endswith('.') and ' ' not in code and len(code)<90:
+                    if code.startswith(('package.','zip.','fbx.','png.','profile.','dwg.','dxf.','plan.')) and not code.endswith('.') and ' ' not in code and len(code)<90:
                         self.assertIn(code,RULE_TITLES,(path.name,code))
         for area in AREAS: self.assertIn('package.'+area,RULE_TITLES)
         for path in (root/'web').glob('*.py'):
@@ -100,6 +100,15 @@ class DiagnosticContractTests(unittest.TestCase):
                     self.assertEqual(states['input.fbx'],'not_checked')
                     self.assertFalse(any(state=='passed' for code,state in states.items() if code.startswith('fbx.')))
                 else: self.assertEqual(states['package.unsupported'],'failed')
+
+    def test_site_plan_checklist_has_only_the_rules_of_a_drawing(self):
+        from model_generator.web.checklist import applicable
+        from model_generator.web.diagnostic_catalog import RULE_RECOVERY
+        rows=applicable('dwg')
+        self.assertEqual(rows[0],'input.dwg')
+        self.assertTrue({'dwg.format','dwg.convert','dxf.units','plan.heights','plan.labels'}<=set(rows))
+        self.assertTrue(all(code=='input.dwg' or code.startswith(('dwg.','dxf.','plan.')) for code in rows))
+        for code in rows: self.assertIn(code,RULE_RECOVERY)
 
     def test_standalone_fbx_checklist_has_no_archive_or_package_rows(self):
         import hashlib

@@ -17,6 +17,7 @@ from .limits import Limits, ReadError
 GRID = 10_000            # integer units per metre
 Z_TOLERANCE = 0.001      # metres; larger disagreement at one location is a conflict
 CONTROL_BASELINE = 1.0   # metres between control points needed to confirm the bearing
+OVERHANG = 0.5           # metres a part of the building may reach past the edge of the survey
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class PlacedBuilding:
     bounds: tuple
     residuals: tuple     # metres, one per control point
     ground_range: tuple  # lowest and highest terrain height under the footprint
+    overhang: float = 0.0  # metres the footprint reaches past the edge of the survey
 
 
 def _reject(rule, message):
@@ -123,9 +125,18 @@ def _delaunay(points):
     return [tuple(t) for t in vertices if t is not None and max(t) < count]
 
 
-def build_terrain(survey, limits=None):
-    """Return the terrain of a HeightSurvey, or refuse with a ReadError."""
+def build_terrain(survey, limits=None, accept_labels=False):
+    """Return the terrain of a HeightSurvey, or refuse with a ReadError.
+
+    Heights read from numeric labels are a guess about the drawing: detail
+    sheets of a real project gave the numbers of their details as heights.
+    Such a survey builds a surface only after the caller states that a person
+    confirmed the labels.
+    """
     limits = limits or Limits()
+    if not accept_labels and (any(s.source == 'label' for s in survey.samples)
+                              or any(line.source == 'label' for line in survey.lines)):
+        _reject('terrain.labels', 'Heights come from labels and were not confirmed')
     located = {}
 
     def add(x, y, z, origin):
@@ -210,15 +221,27 @@ def _hull(points):
     return half(points) + half(reversed(points))
 
 
-def place_building(scene, terrain, placement, controls, tolerance=0.01):
+def _beyond(edge, point):
+    """Metres from a plan point to the closed edge it lies outside of."""
+    def reach(a, b):
+        along = ((point[0] - a[0]) * (b[0] - a[0]) + (point[1] - a[1]) * (b[1] - a[1])) / math.dist(a, b) ** 2
+        along = min(1.0, max(0.0, along))
+        return math.dist(point, (a[0] + along * (b[0] - a[0]), a[1] + along * (b[1] - a[1])))
+    return min(reach(a, b) for a, b in zip(edge, edge[1:] + edge[:1]))
+
+
+def place_building(scene, terrain, placement, controls, tolerance=0.01, overhang=OVERHANG):
     """Move the building into survey coordinates, or refuse with a ReadError.
 
     The placement is taken as stated and must be confirmed by at least two
     control points whose plan distance is enough to confirm the bearing.
+    A real building reaches a little past the edge of its ground model with
+    eaves and canopies; such a reach within `overhang` is measured and kept,
+    a longer one is a building that stands outside the survey.
     """
     stated = (placement.east, placement.north, placement.zero_elevation, placement.bearing_degrees)
-    numbers = [*stated, tolerance] + [c for control in controls for c in (*control.model, *control.survey)]
-    if not all(isinstance(n, (int, float)) and math.isfinite(n) for n in numbers) or tolerance <= 0:
+    numbers = [*stated, tolerance, overhang] + [c for control in controls for c in (*control.model, *control.survey)]
+    if not all(isinstance(n, (int, float)) and math.isfinite(n) for n in numbers) or tolerance <= 0 or overhang < 0:
         _reject('placement.value', 'Placement is not a finite number')
     if not scene.meshes:
         _reject('placement.value', 'The building has no geometry')
@@ -245,9 +268,15 @@ def place_building(scene, terrain, placement, controls, tolerance=0.01):
             plan.append(point[:2])
         meshes.append(replace(mesh, positions=moved))
     index = TerrainIndex(terrain)
-    ground = [index.height(x, y) for x, y in _hull(plan)]
-    if any(height is None for height in ground):
+    footprint = _hull(plan)
+    heights = [index.height(x, y) for x, y in footprint]
+    ground = [height for height in heights if height is not None]
+    reach = 0.0
+    if len(ground) < len(heights):
+        edge = _hull([(terrain.positions[i], terrain.positions[i + 1]) for i in range(0, len(terrain.positions), 3)])
+        reach = max(_beyond(edge, point) for point, height in zip(footprint, heights) if height is None)
+    if not ground or reach > overhang:
         _reject('placement.outside', 'The building stands outside the surveyed terrain')
     bounds = tuple((min(min(m.positions[axis::3]) for m in meshes),
                     max(max(m.positions[axis::3]) for m in meshes)) for axis in range(3))
-    return PlacedBuilding(tuple(meshes), bounds, residuals, (min(ground), max(ground)))
+    return PlacedBuilding(tuple(meshes), bounds, residuals, (min(ground), max(ground)), reach)

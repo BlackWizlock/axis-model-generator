@@ -102,6 +102,23 @@ class SceneTests(unittest.TestCase):
         with self.assertRaises(ReadError):
             read_scene(roots)
 
+    def test_revit_material_stand_in_takes_a_slot_and_element_properties_are_passed_over(self):
+        roots = fixture()
+        objects, connections = roots[1], next(n for n in roots if n.name == 'Connections')
+        model = objects.children[1].props[0]
+        before = read_scene(roots).meshes[0].material_ids
+        objects.children.append(Node('Object', [900, 'ProxyObject_Concrete', ''], []))
+        objects.children.append(Node('Object', [902, 'Revit Environment', ''], []))
+        objects.children.append(Node('ObjectMetaData', [901, 'Wall\x00\x01ObjectMetaData', 'ObjectMetaData'], []))
+        connections.children.append(Node('C', ['OO', 900, model], []))
+        connections.children.append(Node('C', ['OO', 901, model], []))
+        scene = read_scene(roots)
+        self.assertEqual(scene.meshes[0].material_ids, (*before, 900))
+        self.assertEqual(len(scene.meshes), 1)
+        connections.children.append(Node('C', ['OO', 900, model], []))
+        with self.assertRaises(ReadError):
+            read_scene(roots)
+
     def test_repeated_texture_link_does_not_duplicate_scene_placements(self):
         roots = fixture()
         roots[2].children.append(Node('C', ['OO', 3, 4], []))

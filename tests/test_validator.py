@@ -1,12 +1,32 @@
 import json
 import unittest
+from unittest import mock
 from fixtures.builders import fbx_bytes, scene_bytes, zip_bytes
 from model_generator.profiles import check_image
 from model_generator.limits import Limits
+from model_generator import validator
+from model_generator.diagnostics import Finding
 from model_generator.validator import validate_bytes, validate_fbx_bytes
 
 
 class ValidatorTests(unittest.TestCase):
+    def test_repeated_remarks_and_models_are_counted_not_listed(self):
+        remarks = [Finding("fbx.transform", "warn", "a.fbx", [i, 0, 0], [0, 0, 0], f"wall {i}") for i in range(250)]
+        remarks.insert(3, Finding("fbx.transform", "fail", "a.fbx", 7, None, "Invalid local transform"))
+        remarks.append(Finding("fbx.hierarchy", "warn", "a.fbx", [1, 2], None, "Model hierarchy"))
+        kept = validator._bounded(remarks, "a.fbx")
+        self.assertEqual(kept[:101], remarks[:101])
+        self.assertEqual(kept[101], remarks[-1])
+        self.assertEqual(len(kept), 103)
+        total = kept[-1]
+        self.assertEqual((total.rule_id, total.status, total.actual), ("fbx.transform", "warn", 250))
+        self.assertIn("150 more", total.message)
+        with mock.patch.object(validator, "FILE_MODELS", 0):
+            listed = validate_fbx_bytes(scene_bytes(axes=True)).files[0]
+        self.assertEqual(listed["models"], [])
+        self.assertEqual(listed["models_total"], len(validate_fbx_bytes(scene_bytes(axes=True)).files[0]["models"]))
+        self.assertGreater(listed["models_total"], 0)
+
     def test_embedded_images_with_legacy_paths_and_coverage(self):
         report = validate_bytes(zip_bytes([("a.fbx", scene_bytes()), ("a_Ground.fbx", scene_bytes())]))
         data = json.loads(report.to_json())

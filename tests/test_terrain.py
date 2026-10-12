@@ -109,6 +109,19 @@ class TriangulationTests(unittest.TestCase):
             build_terrain(survey([(0, 0, 1), (4, 0, 1), (0, 4, 1), (4, 4, 1)]), replace(Limits(), terrain_points=3))
         self.assertEqual(raised.exception.rule, 'terrain.budget')
 
+    def test_label_heights_wait_for_confirmation(self):
+        # Detail numbers of a real sheet arrive exactly like this: a few labelled flat points.
+        labelled = tuple(HeightSample(x, y, z, 'label', 'INSERT', f'{i:X}', 'marks')
+                         for i, (x, y, z) in enumerate([(0, 0, 1), (4, 0, 2), (0, 4, 3)]))
+        mixed = survey([(0, 0, 1), (4, 0, 1), (0, 4, 1)])
+        mixed = replace(mixed, samples=mixed.samples + labelled[1:2])
+        for source in (HeightSurvey('label', 1.0, labelled, (), {}, (1.0, 3.0)), mixed):
+            with self.assertRaises(ReadError) as raised:
+                build_terrain(source)
+            self.assertEqual(raised.exception.rule, 'terrain.labels')
+        terrain = build_terrain(HeightSurvey('label', 1.0, labelled, (), {}, (1.0, 3.0)), accept_labels=True)
+        self.assertEqual(len(terrain.triangles), 3)
+
 
 class HeightTests(unittest.TestCase):
     def test_surface_reproduces_a_plane_and_every_surveyed_height(self):
@@ -198,6 +211,20 @@ class PlacementTests(unittest.TestCase):
         placement = replace(self.placement, east=1195.0)
         controls = [ControlPoint(c.model, (c.survey[0] + 95, *c.survey[1:])) for c in self.controls]
         self.assertEqual(self.rule(placement=placement, controls=controls), 'placement.outside')
+
+    def test_eaves_past_the_edge_of_the_survey_are_measured(self):
+        # The survey ends at x = 1200; the building is 12 m long along survey +X.
+        def shifted(start):
+            placement = replace(self.placement, east=start)
+            controls = [ControlPoint(c.model, (c.survey[0] + start - 1100, *c.survey[1:])) for c in self.controls]
+            return {'placement': placement, 'controls': controls}
+        placed = place_building(self.scene, self.terrain, **shifted(1188.3))
+        self.assertAlmostEqual(placed.overhang, 0.3, places=9)
+        self.assertAlmostEqual(placed.ground_range[0], 111.883, places=9)
+        self.assertEqual(place_building(self.scene, self.terrain, self.placement, self.controls).overhang, 0.0)
+        self.assertEqual(self.rule(**shifted(1188.6)), 'placement.outside')
+        self.assertEqual(self.rule(**shifted(1188.3), overhang=0.0), 'placement.outside')
+        self.assertEqual(self.rule(overhang=-1.0), 'placement.value')
 
     def test_invalid_values_are_refused(self):
         self.assertEqual(self.rule(placement=replace(self.placement, north=math.inf)), 'placement.value')

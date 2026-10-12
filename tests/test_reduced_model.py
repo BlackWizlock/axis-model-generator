@@ -42,6 +42,25 @@ def package(members):
 
 
 class ReducedModelTests(unittest.TestCase):
+    def test_a_source_above_the_outline_threshold_gives_its_outline(self):
+        with mock.patch('model_generator.reduced_model.OUTLINE_SOURCE_TRIANGLES', 100), \
+                mock.patch('model_generator.reduced_model.OUTLINE_TRIANGLES', 60):
+            data, facts = build_reduced_model(package({'a.fbx': tower(), 'a_Ground.fbx': lawn()}), 'zip-fbx')
+        scene = read_scene(parse_fbx(data))
+        self.assertEqual((facts['status'], facts['max_error'], facts['objects_total']), ('built', None, 1))
+        self.assertEqual(facts['outline']['source_meshes'], 2)
+        self.assertGreater(facts['outline']['cell'], 0)
+        self.assertEqual(len(scene.meshes), 1)
+        self.assertEqual(facts['output_triangles'], len(scene.meshes[0].triangles) // 3)
+        self.assertLessEqual(facts['output_triangles'], 60)
+        self.assertEqual(facts['textures'], {'written': 0, 'bytes': 0, 'left_out': 0})
+        # A scene already read gives the same file as its bytes.
+        scene = read_scene.func(parse_fbx(tower()))
+        self.assertEqual(build_reduced_model(scene, 'fbx')[0], build_reduced_model(tower(), 'fbx')[0])
+        # At the threshold itself the source is still reduced within its error.
+        with mock.patch('model_generator.reduced_model.OUTLINE_SOURCE_TRIANGLES', 10**9):
+            self.assertNotIn('outline', build_reduced_model(tower(), 'fbx')[1])
+
     def test_archive_members_become_one_readable_file_with_roles(self):
         data, facts = build_reduced_model(package({'SM_Site_001_Main.fbx': tower(), 'SM_Site_Ground.fbx': lawn(),
                                                    'notes.txt': b'ignored'}), 'zip-fbx')

@@ -6,9 +6,10 @@ _EXTENSIONS = (
     ('gltf', ('.gltf',)), ('obj', ('.obj',)), ('rvt', ('.rvt',)),
     ('dwg', ('.dwg',)), ('skp', ('.skp',)), ('3dm', ('.3dm',)),
 )
-# Standalone FBX has no legacy transport name: it exists only as descriptor v1.
-_ACCEPTED = frozenset({'zip-fbx', 'portable-package', 'fbx'})
-DESCRIPTOR_ONLY = frozenset({'fbx'})
+# Standalone FBX and DWG have no legacy transport name: they exist only as descriptor v1.
+# A DWG is taken as the site plan: its lines with heights are read and shown.
+_ACCEPTED = frozenset({'zip-fbx', 'portable-package', 'fbx', 'dwg'})
+DESCRIPTOR_ONLY = frozenset({'fbx', 'dwg'})
 
 
 def public_formats() -> list[dict]:

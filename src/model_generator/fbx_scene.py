@@ -39,6 +39,11 @@ class FbxScene:
     source_nodes: tuple
 
 
+# A material slot of a mesh. Revit writes no Material: each of its materials is
+# an Object connected to the models that use it, and takes the slot the same way.
+SLOTS = ('Material', 'Object')
+
+
 def _reject(message):
     raise ReadError('fbx.scene_unsupported', message)
 
@@ -341,13 +346,13 @@ def read_scene(roots, limits=None, unwrapping=False):
     axes = _axes(settings)
     objects = next(n for n in roots if n.name == 'Objects')
     by_id = {n.props[0]: n for n in objects.children}
-    if any(n.name not in ('Geometry', 'Model', 'Material', 'Texture', 'Video', 'NodeAttribute')
+    if any(n.name not in ('Geometry', 'Model', 'Texture', 'Video', 'NodeAttribute', 'ObjectMetaData', *SLOTS)
            for n in objects.children):
         _reject('Unsupported scene object')
     connections = next(n for n in roots if n.name == 'Connections')
     links = [tuple(n.props) for n in connections.children if n.name == 'C']
     for link, count in Counter(links).items():
-        if link[0] == 'OO' and (by_id[link[1]].name in ('Geometry', 'Material', 'Model')):
+        if link[0] == 'OO' and (by_id[link[1]].name in ('Geometry', 'Model', *SLOTS)):
             if count > 1:
                 _reject('Duplicate placement or material slot connection')
     incoming, outgoing = defaultdict(list), defaultdict(list)
@@ -396,7 +401,7 @@ def read_scene(roots, limits=None, unwrapping=False):
             if geometries:
                 _reject('Geometry attached to a model that is not a mesh')
             continue
-        slots = tuple(source for source in incoming[model_id] if by_id[source].name == 'Material')
+        slots = tuple(source for source in incoming[model_id] if by_id[source].name in SLOTS)
         if len(geometries) != 1:
             _reject('Each mesh model must reference exactly one geometry')
         geometry_id = geometries[0]

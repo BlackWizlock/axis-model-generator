@@ -123,7 +123,7 @@ def validate_preview(document: dict, limits: PreviewLimits) -> dict:
     if type(document['schemaVersion']) is not int or document['schemaVersion'] != 1:
         _fail('Unknown preview schema')
     if (type(document['provenance']) is not str or
-            document['provenance'] not in {'uploaded_package', 'reduced_model', 'synthetic'}):
+            document['provenance'] not in {'uploaded_package', 'reduced_model', 'site_plan', 'synthetic'}):
         _fail('Unknown preview provenance')
     if document['coordinates'] != 'processing-metres-rebased':
         _fail('Unsupported preview coordinate system')
@@ -356,7 +356,7 @@ def build_preview(package: PackageData, inspection: SceneInspection, limits: Pre
         _fail('Inspected geometry is unsupported or inconsistent')
 
 
-def build_mesh_preview(meshes, limits: PreviewLimits) -> dict:
+def build_mesh_preview(meshes, limits: PreviewLimits, provenance='reduced_model') -> dict:
     """Display document for the meshes of a reduced model, in their written order.
 
     Every coordinate is rounded to Float32 after rebasing and written with
@@ -392,7 +392,7 @@ def build_mesh_preview(meshes, limits: PreviewLimits) -> dict:
         if isinstance(error, PreviewError):
             raise
         _fail('Reduced geometry is outside display range', 'preview_roundtrip_error')
-    document = {'schemaVersion': 1, 'provenance': 'reduced_model',
+    document = {'schemaVersion': 1, 'provenance': provenance,
                 'coordinates': 'processing-metres-rebased', 'origin': origin,
                 'bounds': _bounds(positions), 'positions': positions, 'indices': indices,
                 'vertexCount': vertices, 'triangleCount': triangles,

@@ -11,7 +11,7 @@ class Limits:
     entries: int = 1000
     nested_depth: int = 1
     fbx_depth: int = 64
-    fbx_nodes: int = 100000
+    fbx_nodes: int = 2_000_000
     fbx_properties: int = 1000
     fbx_array_bytes: int = 256 * 1024**2
     dxf_bytes: int = 256 * 1024**2
