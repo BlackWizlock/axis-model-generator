@@ -46,6 +46,8 @@ DENIED = ('socket', 'socketpair', 'connect', 'bind', 'listen', 'accept', 'accept
           'sendto', 'sendmsg', 'recvfrom', 'recvmsg', 'io_uring_setup', 'io_uring_register',
           'io_uring_enter', 'ptrace', 'bpf', 'process_vm_readv', 'process_vm_writev',
           'pidfd_getfd', 'setns', 'unshare')
+# No file written by the validation process or its converter may be larger.
+VALIDATION_FILE_BYTES = 16 * 1024**2
 BLENDER_DENIED=('setsid','setpgid','mount','umount2','pivot_root','chroot',
                 'open_by_handle_at','name_to_handle_at','execveat')
 
@@ -161,7 +163,7 @@ def main():
         if args.mode=='validation':
             if not command or command[:3]!=[sys.executable,'-m','model_generator.web.validation_child'] or any((args.binary,args.script_sha256,args.preview_input,args.runtime_sha256,args.probe)):
                 raise RuntimeError('untrusted_command')
-            cpu_cap,memory_cap,file_cap=90,1536*1024**2,16*1024**2
+            cpu_cap,memory_cap,file_cap=90,1536*1024**2,VALIDATION_FILE_BYTES
             executable=Path(sys.executable)
             environment=dict(os.environ)
         elif args.mode=='blender':

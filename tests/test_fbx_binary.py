@@ -19,6 +19,15 @@ class BinaryTests(unittest.TestCase):
         self.assertEqual(tree[0].children[0].name, "Child")
         self.assertEqual(parse_fbx(fbx_bytes([])), [])
 
+    def test_element_properties_are_kept_as_a_node_without_their_content(self):
+        inner = [("Properties70", [], [("P", [prop("S", "Mark")], [])] * 50)]
+        data = fbx_bytes([("Objects", [], [("ObjectMetaData", [prop("L", 7)], inner), ("Model", [prop("L", 8)], inner)])])
+        tree = parse_fbx(data, Limits(fbx_nodes=54))
+        self.assertEqual([(n.name, n.props, len(n.children)) for n in tree[0].children],
+                         [("ObjectMetaData", [7], 0), ("Model", [8], 1)])
+        with self.assertRaises(ReadError):
+            parse_fbx(data, Limits(fbx_nodes=53))
+
     def test_unsupported_and_truncation(self):
         for data, rule in [(fbx_bytes([], 7500), "fbx.unsupported"),
                            (b"; FBX 7.4", "fbx.unsupported"),

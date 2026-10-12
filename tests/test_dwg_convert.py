@@ -45,6 +45,11 @@ class ConvertTests(unittest.TestCase):
         self.assertEqual(self.rule(limits=replace(Limits(), dxf_bytes=10)), 'dwg.budget')
         tool = program(self.folder, 'head -c 4096 /dev/zero > "$3"')
         self.assertEqual(self.rule(program=tool, limits=replace(Limits(), dxf_bytes=1024)), 'dwg.budget')
+        # A converter killed at the file size limit of its process left a file cut at the limit.
+        tool = program(self.folder, 'head -c 1024 /dev/zero > "$3"; kill -XFSZ $$')
+        self.assertEqual(self.rule(program=tool, limits=replace(Limits(), dxf_bytes=1024)), 'dwg.budget')
+        tool = program(self.folder, 'head -c 1024 /dev/zero > "$3"')
+        self.assertEqual(len(dwg_to_dxf(DWG, program=tool, limits=replace(Limits(), dxf_bytes=1024))), 1024)
         tool = program(self.folder, 'ln -s /etc/hostname "$3"')
         self.assertEqual(self.rule(program=tool), 'dwg.convert')
 

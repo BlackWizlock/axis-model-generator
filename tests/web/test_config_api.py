@@ -14,15 +14,15 @@ class ConfigTests(unittest.TestCase):
     def test_truthful_public_contract_demo_and_plugin(self):
         response=self.client.get('/api/config'); self.assertEqual(response.status_code,200,response.text)
         dto=response.json(); self.assertEqual(dto['sourceLink'],'https://github.com/BlackWizlock/axis-model-generator')
-        self.assertEqual(dto['inputKinds'],['zip-fbx','portable-package','fbx'])
+        self.assertEqual(dto['inputKinds'],['zip-fbx','portable-package','fbx','dwg'])
         rows={row['id']:row for row in dto['inputFormats']}
         self.assertEqual(set(rows),{'zip-fbx','portable-package','fbx','ifc','glb','gltf','obj','rvt','dwg','skp','3dm'})
         self.assertEqual([row['id'] for row in dto['inputFormats'] if row['upload']],dto['inputKinds'])
-        self.assertEqual([row['id'] for row in dto['inputFormats'] if row['diagnostics']],['zip-fbx','portable-package','fbx'])
-        self.assertEqual([row['id'] for row in dto['inputFormats'] if row['preview']],['zip-fbx','portable-package','fbx'])
+        self.assertEqual([row['id'] for row in dto['inputFormats'] if row['diagnostics']],['zip-fbx','portable-package','fbx','dwg'])
+        self.assertEqual([row['id'] for row in dto['inputFormats'] if row['preview']],['zip-fbx','portable-package','fbx','dwg'])
         self.assertFalse(any(row['generation'] for row in dto['inputFormats']))
         self.assertEqual(dto['capabilities'],{kind:{'availability':'unavailable','reason':'generation_not_implemented'} for kind in ('npm','vpm','ifc')})
-        for kind in ('ifc','glb','gltf','obj','rvt','dwg','skp','3dm'):
+        for kind in ('ifc','glb','gltf','obj','rvt','skp','3dm'):
             self.assertEqual(rows[kind]['reason'],'engine_unavailable')
         self.assertEqual(dto['limits']['retentionSeconds'],86400)
         self.assertFalse(dto['plugin']['available'])

@@ -9,6 +9,9 @@ from .security import ApiError
 
 
 def applicable(kind):
+    if kind=='dwg':
+        # A site plan is a drawing: the rules of a model do not apply to it.
+        return ['input.dwg',*[key for key in RULE_TITLES if key.startswith(('dwg.','dxf.','plan.'))]]
     if kind=='fbx':
         # One file: no archive phase, no package count or ground-name rules.
         return ['input.fbx',*[key for key in RULE_TITLES if key.startswith(('fbx.','png.','profile.'))],*NOT_IMPLEMENTED]
@@ -112,7 +115,7 @@ def details(job,snapshot,report,code,offset,limit):
     if not known or type(offset) is not int or type(limit) is not int or not 0<=offset<=10000 or not 1<=limit<=100:
         raise ApiError('invalid_cursor','Check parameters are invalid.',422)
     envelope=presentation(job,snapshot,report)
-    phase_prefixes={'input.archive':('zip.',),'input.fbx':('fbx.','png.','profile.'),
+    phase_prefixes={'input.archive':('zip.',),'input.fbx':('fbx.','png.','profile.'),'input.dwg':('dwg.','dxf.','plan.'),
                     'input.package':('package.',),'scene.complete':('package.',)}
     phase_rules={'scene.links':{'package.links','package.link'},'scene.materials':{'package.materials','package.material'},
                  'scene.meshes':{'package.geometry','package.materials','package.uv','package.normals','package.material_appearance'},

@@ -39,6 +39,27 @@ def validate_bytes(data, limits=None, observer=None):
     return _close(report)
 
 
+# A file of tens of thousands of elements repeats one remark for each of them.
+# The report keeps this many of a kind and of the models, and states the rest
+# as a number: the remarks that differ must not be crowded out of it.
+REPEATED_FINDINGS = 100
+FILE_MODELS = 200
+
+
+def _bounded(findings, name):
+    kept, counts = [], {}
+    for item in findings:
+        kind = (item.rule_id, item.status, item.scope)
+        counts[kind] = counts.get(kind, 0) + 1
+        if counts[kind] <= REPEATED_FINDINGS:
+            kept.append(item)
+    for (rule, status, scope), count in counts.items():
+        if count > REPEATED_FINDINGS:
+            kept.append(Finding(rule, status, name, count, None,
+                                f"{count - REPEATED_FINDINGS} more remarks of this kind are not listed", scope))
+    return kept
+
+
 def _inspect_file(report, name, data, sha256, limits, budget, ceiling=None):
     """Append one FBX file; return its parsed tree, or None when unreadable.
 
@@ -47,6 +68,9 @@ def _inspect_file(report, name, data, sha256, limits, budget, ceiling=None):
     try:
         tree = parse_fbx(data, limits)
         measurements, findings = inspect_fbx(tree, name)
+        findings = _bounded(findings, name)
+        measurements["models_total"] = len(measurements["models"])
+        del measurements["models"][FILE_MODELS:]
         measurements.update({"read_status": "read", "sha256": sha256, "bytes": len(data)})
         report.files.append(measurements)
         report.findings.extend(findings)
@@ -83,7 +107,12 @@ FBX_NAME = "input.fbx"
 
 def validate_fbx_bytes(data, limits=None, observer=None):
     """Diagnose one standalone FBX. Its role is unknown: the ground range only warns."""
+    return _validate_fbx(data, limits, observer)[0]
+
+
+def _validate_fbx(data, limits, observer):
     limits = limits or Limits()
+    scene = None
     sha256 = hashlib.sha256(data).hexdigest()
     report = Report(input_sha256=sha256, profile=dict(PROFILE))
     if observer: observer("input.fbx", "checking")
@@ -101,7 +130,7 @@ def validate_fbx_bytes(data, limits=None, observer=None):
                                            "not_checked" if exc.rule == "fbx.scene_unsupported" else "fail",
                                            FBX_NAME, None, None, str(exc)))
     if observer: observer("input.fbx", "passed", report.findings)
-    return _close(report)
+    return _close(report), scene
 
 
 def _read_bounded(path, limits, rule):
@@ -121,5 +150,14 @@ def validate_path(path, limits=None, observer=None):
 
 
 def validate_fbx_path(path, limits=None, observer=None):
+    return read_fbx_path(path, limits, observer)[0]
+
+
+def read_fbx_path(path, limits=None, observer=None):
+    """Diagnose one standalone FBX file: (report, its scene or None when it was not read).
+
+    The scene is the one the report states, for a caller that goes on with
+    the geometry: a large file is then read once, not once more.
+    """
     limits = limits or Limits()
-    return validate_fbx_bytes(_read_bounded(path, limits, "fbx.budget"), limits, observer)
+    return _validate_fbx(_read_bounded(path, limits, "fbx.budget"), limits, observer)

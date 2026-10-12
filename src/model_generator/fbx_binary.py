@@ -11,7 +11,7 @@ from .limits import Limits, ReadError
 MAGIC = b"Kaydara FBX Binary  \x00\x1a\x00"
 
 
-@dataclass
+@dataclass(slots=True)
 class Node:
     name: str
     props: list
@@ -19,6 +19,11 @@ class Node:
 
     def child(self, name):
         return next((item for item in self.children if item.name == name), None)
+
+
+# Element properties written by the authoring program (Revit). They hold no geometry
+# and outnumber every other node of such a file, so their content is not read.
+UNREAD = frozenset({"ObjectMetaData"})
 
 
 def parse_fbx(data, limits=None):
@@ -32,6 +37,15 @@ def parse_fbx(data, limits=None):
     position = 27
     nodes_used = 0
     arrays_used = 0
+    # A file repeats the same few names and words in most of its nodes; each
+    # is kept once, or a large file would not fit the memory of its reader.
+    words = {}
+
+    def word(raw):
+        value = words.get(raw)
+        if value is None:
+            value = words[raw] = raw.decode("utf-8", errors="replace")
+        return value
 
     def take(size, bound):
         nonlocal position
@@ -52,7 +66,7 @@ def parse_fbx(data, limits=None):
             return unpack(scalars[kind], bound)[0]
         if kind in {b"S", b"R"}:
             value = take(unpack("I", bound)[0], bound)
-            return value.decode("utf-8", errors="replace") if kind == b"S" else value
+            return word(value) if kind == b"S" else value
         arrays = {b"f": "f", b"d": "d", b"i": "i", b"l": "q", b"b": "b", b"c": "B"}
         if kind not in arrays:
             raise ReadError("fbx.integrity", f"Unknown property type {kind!r}")
@@ -95,11 +109,14 @@ def parse_fbx(data, limits=None):
             raise ReadError("fbx.budget", "Node, depth or property budget exceeded")
         if end < position + name_length + length or end > bound:
             raise ReadError("fbx.integrity", "Invalid node end offset")
-        name = take(name_length, end).decode("utf-8", errors="replace")
+        name = word(take(name_length, end))
         props_end = position + length
         props = [property_value(props_end) for _ in range(count)]
         if position != props_end:
             raise ReadError("fbx.integrity", "Property byte count mismatch")
+        if name in UNREAD:
+            position = end
+            return Node(name, props, [])
         children = []
         if position < end:
             terminated = False

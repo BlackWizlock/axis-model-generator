@@ -1,5 +1,19 @@
+# GNU LibreDWG (GPLv3+) reads DWG as a separate program: it is built from its
+# pinned source and never linked into the application.
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS libredwg
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl pkg-config xz-utils && rm -rf /var/lib/apt/lists/*
+ARG LIBREDWG_VERSION=0.13.4
+ARG LIBREDWG_SHA256=7e153ea4dac4cbf3dc9c50b9ef7a5604e09cdd4c5520bcf8017877bbe1422cd5
+RUN curl -fsSL --max-time 600 -o /tmp/libredwg.tar.xz "https://ftp.gnu.org/gnu/libredwg/libredwg-${LIBREDWG_VERSION}.tar.xz" \
+ && echo "${LIBREDWG_SHA256}  /tmp/libredwg.tar.xz" | sha256sum -c - \
+ && mkdir /build && tar -xJf /tmp/libredwg.tar.xz -C /build --strip-components=1
+WORKDIR /build
+RUN ./configure --prefix=/opt/libredwg --disable-bindings --disable-docs --disable-shared --enable-release \
+ && make -j"$(nproc)" && make install-strip
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
 RUN test "$(dpkg-query -W -f='${Version}' libseccomp2)" = '2.5.4-1+deb12u1'
+COPY --from=libredwg /opt/libredwg/bin/dwg2dxf /usr/local/lib/libredwg/dwg2dxf
+COPY --from=libredwg /build/COPYING /usr/local/lib/libredwg/COPYING
 WORKDIR /app
 COPY requirements-web.lock requirements-web-test.lock ./
 RUN python -m pip install --root-user-action=ignore --no-cache-dir --require-hashes -r requirements-web.lock && python -m pip check

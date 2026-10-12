@@ -168,6 +168,15 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.claim_content(self.owner,result['id'])['input_descriptor'],
             dict(version=1,kind='fbx',displayName='house.fbx',bytes=1,sha256='a'*64))
 
+    def test_site_plan_dwg_exists_only_as_descriptor_v1(self):
+        with self.assertRaises(ApiError) as error:
+            self.store.reserve_upload(self.owner,'dwg','plan.dwg',1,'a'*64,self.now,descriptor_version=0)
+        self.assertEqual(error.exception.code,'invalid_upload')
+        result=self.store.reserve_upload(self.owner,'dwg','plan.dwg',1,'a'*64,self.now,descriptor_version=1)
+        self.assertTrue(self.store.intent(self.owner,result['id']).key.endswith('/input.bin'))
+        self.assertEqual(self.store.claim_content(self.owner,result['id'])['input_descriptor'],
+            dict(version=1,kind='dwg',displayName='plan.dwg',bytes=1,sha256='a'*64))
+
     def test_invalid_version_fails_before_quota(self):
         for version in (True,False,-1,2,'1',None,1.0):
             with self.subTest(version=version),self.assertRaises(ApiError) as error:

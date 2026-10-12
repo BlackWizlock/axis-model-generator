@@ -15,9 +15,9 @@ except ImportError:  # pragma: no cover
 
 from .archive import read_archive
 from .fbx_binary import parse_fbx
-from .fbx_scene import read_scene, unwrap
+from .fbx_scene import FbxScene, read_scene, unwrap
 from .limits import Limits
-from .npm_export import export_scenes
+from .npm_export import export_outline, export_scenes
 from .simplify import OverBudget
 
 MODEL_MAX_BYTES = 16 * 1024**2
@@ -35,6 +35,11 @@ REPORT_CPU_MARGIN = 3.0
 # A mesh above this is reduced without its unwrapping from the start: with it
 # the reduction would not fit the memory of the checking process.
 UNWRAPPING_MESH_TRIANGLES = 400_000
+# A source above this many triangles is not reduced within the stated error:
+# that would not fit the time of the checking process. It gives its outline,
+# one coarse mesh small enough for the view.
+OUTLINE_SOURCE_TRIANGLES = 1_500_000
+OUTLINE_TRIANGLES = 180_000
 # The facts travel inside the report of the checks and must not crowd its
 # findings out: a bounded list of meshes, and no list at all if names are long.
 FACT_OBJECTS = 200
@@ -43,7 +48,8 @@ FACT_BYTES = 64 * 1024
 
 def _facts(report):
     objects = report['objects']
-    facts = {'status': 'built', 'reason': None, 'max_error': MAX_ERROR, **report,
+    # An outline keeps to its cell, not to the error of a reduction.
+    facts = {'status': 'built', 'reason': None, 'max_error': None if 'outline' in report else MAX_ERROR, **report,
              'objects': objects[:FACT_OBJECTS], 'objects_total': len(objects)}
     if len(json.dumps(facts, ensure_ascii=False).encode('utf-8')) > FACT_BYTES:
         facts['objects'] = []
@@ -99,6 +105,8 @@ def reduce_input(data, kind, limits=None, max_bytes=MODEL_MAX_BYTES, cpu_seconds
     """Return (FBX bytes or None, facts, written meshes) for a `zip-fbx` or `fbx` input.
 
     The meshes are those of the file, for a view of exactly what was built.
+    `data` is the bytes of the input or, for `fbx`, its scene already read
+    with the same limits: the reading then costs this build nothing.
 
     The source files are taken as already sharing coordinates: nothing is
     moved apart from the common shift to the local origin stated in the facts.
@@ -107,27 +115,38 @@ def reduce_input(data, kind, limits=None, max_bytes=MODEL_MAX_BYTES, cpu_seconds
     of the checks must not be lost to it. The unwrapping and the pictures are
     kept when the file with them fits `max_bytes`, `cpu_seconds` and the memory
     of the process; otherwise the model is built again without them, with
-    the same time of its own.
+    the same time of its own. A source above OUTLINE_SOURCE_TRIANGLES gives
+    its outline instead, in `cpu_seconds` of its own after the reading.
     """
     limits = limits or Limits()
     started = time.process_time()
     expired = lambda: time.process_time() - started > cpu_seconds
     result = None
     try:
-        if kind == 'fbx':
-            sources = [('model', data)]
+        if isinstance(data, FbxScene):
+            scenes = [('model', data)]
         else:
-            sources = [('ground' if PurePosixPath(entry.name).stem.lower().endswith('_ground') else 'building', entry.data)
-                       for entry in read_archive(data, limits).entries if entry.name.lower().endswith('.fbx')]
-        if not sources:
-            return None, {'status': 'not_built', 'reason': 'model_unsupported'}, ()
-        scenes = [(role, read_scene(parse_fbx(source, limits), limits)) for role, source in sources]
-        if expired():
+            if kind == 'fbx':
+                sources = [('model', data)]
+            else:
+                sources = [('ground' if PurePosixPath(entry.name).stem.lower().endswith('_ground') else 'building', entry.data)
+                           for entry in read_archive(data, limits).entries if entry.name.lower().endswith('.fbx')]
+            if not sources:
+                return None, {'status': 'not_built', 'reason': 'model_unsupported'}, ()
+            scenes = [(role, read_scene(parse_fbx(source, limits), limits)) for role, source in sources]
+        outlined = sum(len(mesh.triangles) for _, scene in scenes for mesh in scene.meshes) // 3 > OUTLINE_SOURCE_TRIANGLES
+        if outlined:
+            # Reading such a source takes most of the time a build has; the
+            # outline is quick and starts its own count.
+            started = time.process_time()
+            with stopped_after(cpu_left() - REPORT_CPU_MARGIN):
+                result = export_outline(scenes, OUTLINE_TRIANGLES, expired=expired, max_bytes=max_bytes)
+        elif expired():
             raise OverBudget
         # The build with the unwrapping stops while the process still has the
         # whole time of the build without it.
         spent = lambda: expired() or cpu_left() < cpu_seconds + PLAIN_CPU_MARGIN
-        unwrapped = not spent() and all(len(mesh.triangles) // 3 <= UNWRAPPING_MESH_TRIANGLES
+        unwrapped = not outlined and not spent() and all(len(mesh.triangles) // 3 <= UNWRAPPING_MESH_TRIANGLES
                                         for _, scene in scenes for mesh in scene.meshes)
         if unwrapped:
             try:
@@ -141,7 +160,7 @@ def reduce_input(data, kind, limits=None, max_bytes=MODEL_MAX_BYTES, cpu_seconds
                 # Whatever stops the build with the unwrapping, the build
                 # without it still has its turn.
                 pass
-        if result is None or len(result.data) > max_bytes:
+        if not outlined and (result is None or len(result.data) > max_bytes):
             # The first build and its texture coordinates are let go before
             # the build without them takes its memory.
             result = None

@@ -6,20 +6,26 @@ import {allowedExtensions,acceptsFile,kindForFile,rejectedFileText} from './inpu
 import {guestSession} from './auth.js';
 import {uploadFile,UPLOAD_CAP,uploadStageText} from './upload.js';
 import {getJobs,getJob,createJob,cancelJob,deleteJob,startPolling,statusText,terminal,jobAxes,jobArtifacts} from './jobs.js';
-import {mountPreview,previewReason} from './preview.js';
+import {mountPreview,previewReason,validatePreview} from './preview.js';
+import {setupScene} from './scene-panel.js';
+import {mountScene} from './scene-view.js';
 import {readModel,MODEL_MAX_BYTES} from './model-view.js';
 const byId=id=>document.getElementById(id);
 const state={inputFormats:null,user:null,poller:null,upload:null,viewer:null,selected:null,demo:false,selectionEpoch:0,selectedFingerprint:null,jobs:[],cursor:null,limits:{uploadBytes:UPLOAD_CAP}};
+function browserStorage(){try{return window.localStorage;}catch{return null;}}
 function message(id,text,error=false){const node=byId(id);node.textContent=text;node.classList.toggle('error',error);node.setAttribute('role',error?'alert':'status');node.setAttribute('aria-live',error?'assertive':'polite');}
 const safeError=error=>error instanceof ApiError?error.message:error?.name==='AbortError'?'Действие отменено.':'Не удалось выполнить действие. Попробуйте ещё раз.';
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(className)node.className=className;return node;}
 function action(label,callback){const button=element('button',label,'button quiet');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;try{await callback();}catch(error){message('jobs-message',safeError(error),true);}finally{button.disabled=false;}});return button;}
+// Сцена участка читает те же приватные данные просмотра, что и одиночный просмотр задания.
+const sitePanel=setupScene({byId,element,mount:mountScene,storage:browserStorage(),hasPreview:job=>jobArtifacts(job).some(item=>item.kind==='preview'),
+ loadPreview:async job=>{const user=state.user,document=validatePreview(await api(artifactPath(job.id,jobArtifacts(job).find(item=>item.kind==='preview').id),{maxBytes:16*1024*1024}));if(user!==state.user||document.provenance!==(job.inputKind==='dwg'?'site_plan':'reduced_model'))throw new ApiError('invalid_preview');return document;}});
 function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('viewer-materials').textContent='Нейтральные материалы';byId('thumbnail').hidden=true;byId('thumbnail').removeAttribute('src');byId('reset-view').disabled=true;byId('report-panel').hidden=true;byId('report-download').removeAttribute('href');byId('model-download').hidden=true;byId('model-download').removeAttribute('href');}
 function setUser(user){
  state.user=user;state.poller?.stop();state.poller=null;
  byId('upload-submit').disabled=!user;
  if(user){state.limits={...state.limits,...user.limits,inputFormats:state.inputFormats};byId('upload-limit').textContent=`До ${Math.floor(Math.min(state.limits.uploadBytes||UPLOAD_CAP,UPLOAD_CAP)/1024/1024)} MiB · доступ к заданию и результатам до 24 часов`;state.poller=startPolling(refreshJobs);checkChosenFile();}
- else{state.selectionEpoch++;state.upload?.abort();state.jobs=[];state.selected=null;byId('jobs-list').replaceChildren(element('p','Здесь появятся модели из этой сессии.','empty-jobs'));resetPreview();byId('viewer').textContent='Откройте демонстрацию или результат своей модели.';byId('checks-list').replaceChildren();byId('checks-summary').textContent='Не удалось открыть приватную сессию. Следуйте инструкции под формой загрузки.';setCsrfToken(null);}
+ else{state.selectionEpoch++;state.upload?.abort();state.jobs=[];state.selected=null;sitePanel.clear();sitePanel.jobs([]);byId('jobs-list').replaceChildren(element('p','Здесь появятся модели из этой сессии.','empty-jobs'));resetPreview();byId('viewer').textContent='Откройте демонстрацию или результат своей модели.';byId('checks-list').replaceChildren();byId('checks-summary').textContent='Не удалось открыть приватную сессию. Следуйте инструкции под формой загрузки.';setCsrfToken(null);}
 }
 function checkChosenFile(){
  const file=byId('input-file').files[0];
@@ -33,7 +39,7 @@ function setInputFormats(rows){
  state.inputFormats=rows;state.limits.inputFormats=rows;
  const extensions=allowedExtensions(rows);byId('input-file').setAttribute('accept',extensions);byId('input-file').disabled=!extensions;
  const select=byId('input-kind'),selected=select.value;
- const labels={'portable-package':'Переносимый пакет v1','zip-fbx':'ZIP с FBX','fbx':'FBX'};
+ const labels={'portable-package':'Переносимый пакет v1','zip-fbx':'ZIP с FBX','fbx':'FBX','dwg':'DWG генплана'};
  select.replaceChildren(...rows.filter(row=>row.upload).map(row=>{const option=element('option',labels[row.id]||row.id.toUpperCase());option.value=row.id;return option;}));
  select.value=rows.find(row=>row.upload&&row.id===selected)?.id||rows.find(row=>row.upload)?.id||'';
  byId('input-format-reasons').replaceChildren();
@@ -82,7 +88,7 @@ function renderJobs(){
 }
 async function refreshJobs(){
  const user=state.user;if(!user)return[];
- try{const result=await getJobs();if(state.user!==user)return[];if(!Array.isArray(result.jobs))throw new ApiError('invalid_response');state.jobs=result.jobs;state.cursor=result.nextCursor||null;renderJobs();state.lastReply=Date.now();message('jobs-message',`Список обновлён ${new Date(state.lastReply).toLocaleTimeString('ru-RU')}.`);
+ try{const result=await getJobs();if(state.user!==user)return[];if(!Array.isArray(result.jobs))throw new ApiError('invalid_response');state.jobs=result.jobs;state.cursor=result.nextCursor||null;renderJobs();sitePanel.jobs(state.jobs);state.lastReply=Date.now();message('jobs-message',`Список обновлён ${new Date(state.lastReply).toLocaleTimeString('ru-RU')}.`);
   if(state.selected){const job=state.jobs.find(n=>n.id===state.selected);if(job&&!terminal.has(job.state)&&job.state!=='deleting')await refreshChecks(job);else if(job&&jobFingerprint(job)!==state.selectedFingerprint)await openJob(job.id,{scroll:false});}
   state.jobs.forEach(observeDiagnostic);return state.jobs;
  }catch(error){if(state.user===user){message('jobs-message',`${safeError(error)} Связь не подтверждена. Последний ответ: ${state.lastReply?new Date(state.lastReply).toLocaleTimeString('ru-RU'):'ещё не получен'}. Нажмите Обновить после восстановления сети.`,true);if(error.status===401){setUser(null);message('session-message','Сессия завершена. Обновите страницу, чтобы начать новую.',true);}}throw error;}
@@ -90,7 +96,7 @@ async function refreshJobs(){
 byId('refresh-jobs').addEventListener('click',()=>{void state.poller?.refresh();});
 byId('more-jobs').addEventListener('click',async()=>{
  if(!state.cursor)return;const button=byId('more-jobs');button.disabled=true;const user=state.user;
- try{const result=await getJobs(state.cursor);if(user!==state.user)return;if(!Array.isArray(result.jobs))throw new ApiError('invalid_response');const ids=new Set(state.jobs.map(job=>job.id));state.jobs.push(...result.jobs.filter(job=>!ids.has(job.id)));state.cursor=result.nextCursor||null;renderJobs();}
+ try{const result=await getJobs(state.cursor);if(user!==state.user)return;if(!Array.isArray(result.jobs))throw new ApiError('invalid_response');const ids=new Set(state.jobs.map(job=>job.id));state.jobs.push(...result.jobs.filter(job=>!ids.has(job.id)));state.cursor=result.nextCursor||null;renderJobs();sitePanel.jobs(state.jobs);}
  catch(error){message('jobs-message',safeError(error),true);}finally{button.disabled=false;}
 });
 function jobFingerprint(job){return JSON.stringify([job.state,job.stage,job.cancelRequested,jobArtifacts(job).map(item=>[item.id,item.kind])]);}
@@ -105,6 +111,7 @@ function reducedModelText(model,facts){
  if(!facts||typeof facts!=='object')return'';
  if(!model||facts.status!=='built')return' Упрощённая модель FBX не собрана: геометрию входа не удалось прочитать полностью или результат превышает допустимый размер.';
  if(!Number.isSafeInteger(facts.input_triangles)||!Number.isSafeInteger(facts.output_triangles))return'';
+ if(facts.outline)return` Силуэт модели FBX: ${facts.output_triangles} из ${facts.input_triangles} треугольников, детали мельче ${Math.round(facts.outline.cell*100)} см не показаны. Вход слишком велик для упрощения с отклонением 2 см; материалы и текстуры в силуэт не переносятся.`;
  return` Упрощённая модель FBX: ${facts.output_triangles} из ${facts.input_triangles} треугольников, отклонение не больше 2 см. Исходные файлы приняты как лежащие в общих координатах; ${reducedTexturesText(facts.textures)}.`;
 }
 function reducedTexturesText(textures){
@@ -120,23 +127,25 @@ async function openJob(id,{scroll=true}={}){
  try{
   const job=await getJob(id);if(epoch!==state.selectionEpoch||user!==state.user)return;
   observeDiagnostic(job);const source=runSourceLabel(job);byId('preview-provenance').textContent=`ПРИВАТНЫЙ ПАКЕТ · ${source}`;
-  state.selectedFingerprint=jobFingerprint(job);await refreshChecks(job);if(epoch!==state.selectionEpoch||user!==state.user)return;showAxes(job);byId('report-panel').hidden=false;byId('report-download').hidden=true;byId('report-summary').textContent=`${source}. Отчёт появится после обработки. Завершение обработки не подтверждает нормативную готовность.`;byId('report-findings').replaceChildren();const report=jobArtifacts(job).find(n=>n.kind==='report');const preview=jobArtifacts(job).find(n=>n.kind==='preview');const model=jobArtifacts(job).find(n=>n.kind==='model');
+  state.selectedFingerprint=jobFingerprint(job);await refreshChecks(job);if(epoch!==state.selectionEpoch||user!==state.user)return;showAxes(job);byId('report-panel').hidden=false;byId('report-download').hidden=true;byId('report-summary').textContent=`${source}. Отчёт появится после обработки. Завершение обработки не подтверждает нормативную готовность.`;byId('report-findings').replaceChildren();const report=jobArtifacts(job).find(n=>n.kind==='report');const preview=jobArtifacts(job).find(n=>n.kind==='preview');const model=jobArtifacts(job).find(n=>n.kind==='model');let outlined=false;
   byId('model-download').hidden=!model;if(model)byId('model-download').href=artifactPath(id,model.id);else byId('model-download').removeAttribute('href');
-  if(report){const path=artifactPath(id,report.id);const document=await api(path,{maxBytes:4*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;byId('report-panel').hidden=false;byId('report-download').href=path;byId('report-download').hidden=false;const findings=Array.isArray(document.findings)?document.findings:[];
+  if(report){const path=artifactPath(id,report.id);const document=await api(path,{maxBytes:4*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;byId('report-panel').hidden=false;byId('report-download').href=path;byId('report-download').hidden=false;const findings=Array.isArray(document.findings)?document.findings:[];outlined=Boolean(model&&document.reduced_model?.outline);
    byId('report-summary').textContent=`${source}. ${state.checkSummary||''} Обработка: ${statusText(job.state)}. Замечаний в отчёте: ${findings.length}${document.report_truncated?' · отчёт сокращён':''}. Завершение обработки не подтверждает нормативную готовность.${reducedModelText(model,document.reduced_model)}`;
    const list=byId('report-findings');list.replaceChildren();for(const finding of findings.slice(0,1000)){const row=element('li');row.textContent=[finding.rule_id,finding.status,finding.message].filter(n=>typeof n==='string').join(' · ');list.append(row);}if(findings.length>1000)list.append(element('li','Показаны первые 1000 замечаний. Полный список доступен в скачиваемом отчёте.'));
   }
   const thumbnail=jobArtifacts(job).find(n=>n.kind==='thumbnail');byId('thumbnail').hidden=!thumbnail;if(thumbnail)byId('thumbnail').src=artifactPath(id,thumbnail.id);
   if(job.failure){message('preview-message',`${job.failure.title}. ${job.failure.why} ${job.failure.nextAction} Код обращения: ${job.diagnosticId}.`,true);}
-  if(preview){const document=await api(artifactPath(id,preview.id),{maxBytes:16*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;if(document.provenance!==(job.inputKind==='portable-package'?'uploaded_package':'reduced_model'))throw new ApiError('invalid_preview');
+  if(preview){const document=await api(artifactPath(id,preview.id),{maxBytes:16*1024*1024});if(epoch!==state.selectionEpoch||user!==state.user)return;if(document.provenance!==(job.inputKind==='portable-package'?'uploaded_package':job.inputKind==='dwg'?'site_plan':'reduced_model'))throw new ApiError('invalid_preview');
    // Рисунки берутся из самого файла модели. Не прочитался: остаётся проверенный нейтральный просмотр.
    let surfaces=null;if(document.provenance==='reduced_model'&&model){try{surfaces=await readModel(await apiBytes(artifactPath(id,model.id),MODEL_MAX_BYTES));}catch{surfaces=null;}if(epoch!==state.selectionEpoch||user!==state.user)return;}
-   state.viewer=mountPreview(byId('viewer'),document,surfaces);byId('reset-view').disabled=false;if(state.viewer.textured)byId('viewer-materials').textContent='Текстуры исходника';message('preview-message',previewCaption(document.provenance,state.viewer.textured));}
+   state.viewer=mountPreview(byId('viewer'),document,surfaces);byId('reset-view').disabled=false;if(state.viewer.textured)byId('viewer-materials').textContent='Текстуры исходника';message('preview-message',previewCaption(document.provenance,state.viewer.textured,outlined));}
   else{const reason=job.capabilities?.preview?.reason||(job.inputKind==='zip-fbx'?'zip_fbx_preview_not_verified':null);byId('viewer').textContent=!terminal.has(job.state)&&job.state!=='deleting'?'Результат появится после обработки.':previewReason(reason);}
  }catch(error){if(epoch===state.selectionEpoch&&user===state.user){byId('viewer').textContent='Не удалось открыть результат.';message('preview-message',safeError(error),true);}}
 }
-function previewCaption(provenance,textured){
+function previewCaption(provenance,textured,outlined){
+ if(provenance==='site_plan')return'Линии генплана с высотами из вашего DWG: каждая показана на своей отметке. Поверхность между линиями не строится; нормативная готовность не подтверждена.';
  if(provenance!=='reduced_model')return'Проверенная геометрия вашего пакета. Нейтральные материалы; нормативная готовность не подтверждена.';
+ if(outlined)return'Силуэт модели, собранный из вашего FBX: общий объём без мелких деталей. Нейтральные материалы; нормативная готовность не подтверждена.';
  return textured?'Упрощённая модель, собранная из вашего FBX, с текстурами исходника. Освещение и свойства материалов не показаны; нормативная готовность не подтверждена.':'Упрощённая модель, собранная из вашего FBX. Нейтральные материалы, текстуры не показаны; нормативная готовность не подтверждена.';
 }
 byId('demo-button').addEventListener('click',async()=>{
@@ -145,7 +154,7 @@ byId('demo-button').addEventListener('click',async()=>{
  catch(error){if(epoch===state.selectionEpoch){byId('viewer').textContent='Демонстрация пока недоступна.';message('preview-message',safeError(error),true);}}finally{button.disabled=false;}
 });
 byId('reset-view').addEventListener('click',()=>state.viewer?.reset());
-window.addEventListener('pagehide',()=>{state.selectionEpoch++;state.limits.preserveOnAbort=true;state.poller?.stop();state.poller=null;state.upload?.abort();resetPreview();});
+window.addEventListener('pagehide',()=>{state.selectionEpoch++;state.limits.preserveOnAbort=true;state.poller?.stop();state.poller=null;state.upload?.abort();resetPreview();sitePanel.clear();});
 window.addEventListener('pageshow',async event=>{
  if(!event.persisted)return;state.limits.preserveOnAbort=false;
  if(state.user){state.poller?.stop();state.poller=startPolling(refreshJobs);}

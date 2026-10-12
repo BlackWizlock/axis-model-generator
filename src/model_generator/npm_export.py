@@ -13,9 +13,11 @@ from dataclasses import dataclass, replace
 import math
 
 from .fbx_write import PNG, ExportMaterial, ExportMesh, ExportTexture, write_fbx
+from .silhouette import outline
 from .simplify import simplify
 
 TERRAIN = 'Terrain'
+OUTLINE = 'Outline'
 # Embedded pictures of one output file, all together.
 PICTURE_NODES = 2048  # room kept for the nodes and connections of one use of a picture
 
@@ -98,7 +100,9 @@ def _material(node, object_id):
             values = prop.props[4:]
             if len(values) == 3 and all(type(v) in (int, float) and 0 <= v <= 1 for v in values):
                 color = tuple(float(v) for v in values)
-    return ExportMaterial(_name(node, f'Material {object_id}'), color)
+    # Revit names the stand-in of a material after the material, behind a fixed prefix.
+    name = _name(node, f'Material {object_id}').removeprefix('ProxyObject_').strip()
+    return ExportMaterial(name or f'Material {object_id}', color)
 
 
 class _Assembly:
@@ -236,7 +240,25 @@ def export_npm(scene, placed, terrain, max_error=0.02, terrain_error=None):
     assembly.entries.append({'name': TERRAIN, 'kind': 'terrain', **reduced.report})
     assembly.add_scene(scene, placed.meshes, 'building', max_error)
     return assembly.finish(building_bounds=placed.bounds, control_residuals=placed.residuals,
-                           ground_range=placed.ground_range)
+                           ground_range=placed.ground_range, overhang=placed.overhang)
+
+
+def export_outline(scenes, max_triangles, expired=None, max_bytes=None):
+    """Return one FBX with the outline of source scenes that already share coordinates.
+
+    For a source too large to reduce within the stated error: every mesh of
+    every scene goes into one coarse mesh of at most `max_triangles`, without
+    materials, texture coordinates or pictures. The report states the cell
+    below which nothing of the source is shown.
+    """
+    meshes = [mesh for _, scene in scenes for mesh in scene.meshes]
+    assembly = _Assembly(_origin(meshes))
+    positions, triangles, cell = outline(meshes, max_triangles, expired)
+    assembly.meshes.append(ExportMesh(OUTLINE, assembly.local(positions), triangles))
+    assembly.entries.append({'name': OUTLINE, 'kind': 'outline', 'materials': [], 'materials_assigned': False,
+                             'texture_coordinates': False, 'input_triangles': sum(len(m.triangles) // 3 for m in meshes),
+                             'output_triangles': len(triangles) // 3})
+    return assembly.finish(max_bytes, outline={'cell': cell, 'source_meshes': len(meshes)})
 
 
 def export_scenes(scenes, max_error=0.02, expired=None, max_bytes=None, unwrapping=True):

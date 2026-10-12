@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[3] / 'web' / 'dist'
 PAGES = {'': 'index.html', 'privacy': 'privacy.html', 'support': 'support.html', 'analytics-consent': 'analytics-consent.html'}
 PUBLIC = frozenset({
     'styles.css', 'THIRD-PARTY-NOTICES.md', 'robots.txt', 'sitemap.xml', 'favicon.ico',
-    *('src/' + name + '.js' for name in ('api','auth','input-formats','upload','sha256','hash-worker','jobs','preview','model-view','app','checks','shell','analytics')),
+    *('src/' + name + '.js' for name in ('api','auth','input-formats','upload','sha256','hash-worker','jobs','preview','model-view','scene','scene-view','scene-panel','app','checks','shell','analytics')),
     *('vendor/' + name for name in ('three.module.js','three.core.js','OrbitControls.js','THREE-LICENSE.txt')),
     *('assets/' + name for name in ('axis-sign.png','max-icon.png','inventory.json','revit-model.svg','dwg-plan.svg','npm-result.svg')),
     *('assets/fonts/' + name for name in ('manrope-latin-wght-normal.woff2','manrope-cyrillic-wght-normal.woff2',

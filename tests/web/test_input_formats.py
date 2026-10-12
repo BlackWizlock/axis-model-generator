@@ -10,7 +10,7 @@ class InputFormatsTests(unittest.TestCase):
         self.assertEqual(set(rows), {'zip-fbx', 'portable-package', 'fbx',
             'ifc', 'glb', 'gltf', 'obj', 'rvt', 'dwg', 'skp', '3dm'})
         for kind, row in rows.items():
-            active = kind in {'zip-fbx', 'portable-package', 'fbx'}
+            active = kind in {'zip-fbx', 'portable-package', 'fbx', 'dwg'}
             self.assertEqual(row['extensions'], ['.' + kind if kind not in {'zip-fbx', 'portable-package'} else '.zip'])
             self.assertEqual(row['upload'], active)
             self.assertEqual(row['diagnostics'], active)
@@ -36,5 +36,5 @@ class InputFormatsTests(unittest.TestCase):
         self.assertEqual(fresh[0]['extensions'], ['.zip'])
         require_diagnostics('zip-fbx')
 
-    def test_standalone_fbx_has_no_legacy_transport(self):
-        self.assertEqual(DESCRIPTOR_ONLY, {'fbx'})
+    def test_standalone_fbx_and_dwg_have_no_legacy_transport(self):
+        self.assertEqual(DESCRIPTOR_ONLY, {'fbx', 'dwg'})

@@ -24,6 +24,7 @@ async function appHarness(overrides={}) {
  ApiError:class extends Error{},artifactPath:()=>'/artifact',setCsrfToken(){},guestSession:async()=>{},UPLOAD_CAP:1000,uploadStageText:x=>x,
  getJobs:async()=>({jobs:[],nextCursor:null}),getJob:async id=>({id,state:'completed',inputHash:'b'.repeat(64)}),createJob:async()=>({id:'a'.repeat(32)}),cancelJob(){},deleteJob(){},
  startPolling:()=>{const poller={stopped:false,stop(){this.stopped=true;},refresh:async()=>{}};pollers.push(poller);return poller;},statusText:x=>x,terminal:new Set(['completed']),jobAxes:()=>[],jobArtifacts:()=>[],
+ setupScene:()=>({jobs(){},clear(){}}),mountScene(){},validatePreview:value=>value,
  getChecks:async()=>({attempt:1,checks:[],coverage:{}}),renderChecks(){},completionText:()=>'',runSourceLabel:()=> 'Источник',mountPreview:()=>({dispose(){disposed++;},reset(){}}),apiBytes:async()=>new Uint8Array(0),readModel:async()=>null,MODEL_MAX_BYTES:16*1024*1024,previewReason:()=>'',uploadFile:async()=>({id:'upload'}),...overrides};
  vm.createContext(context);const source=await readFile(new URL('../src/app.js',import.meta.url),'utf8');vm.runInContext(source.replace(/^import .*;$/gm,''),context);await settle();
  return {nodes,get,events,pollers,context,disposed:()=>disposed};
@@ -124,6 +125,27 @@ test('reduced model summary states what happened to the textures',async()=>{
   textures=facts;await vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
   assert.match(app.get('report-summary').textContent,expected);
  }
+});
+test('an outline is named as an outline in the summary and under the view',async()=>{
+ const artifacts=[{id:'r'.repeat(32),kind:'report'},{id:'p'.repeat(32),kind:'preview'},{id:'m'.repeat(32),kind:'model'}];let outline={cell:0.627,source_meshes:3};
+ const app=await appHarness({jobArtifacts:()=>artifacts,artifactPath:(job,id)=>`/artifact/${id}`,getJob:async id=>({id,state:'completed',inputKind:'fbx',inputHash:'b'.repeat(64)}),
+  api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};
+   return {findings:[],provenance:'reduced_model',reduced_model:{status:'built',input_triangles:3140948,output_triangles:122846,...(outline?{outline}:{})}};},
+  apiBytes:async()=>new Uint8Array(4),readModel:async()=>{throw new Error('Invalid model file');},mountPreview:()=>({textured:0,dispose(){},reset(){}})});
+ const open=()=>vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
+ await open();assert.match(app.get('report-summary').textContent,/Силуэт модели FBX: 122846 из 3140948 треугольников, детали мельче 63 см не показаны/);
+ assert.doesNotMatch(app.get('report-summary').textContent,/отклонение не больше 2 см/);assert.match(app.get('preview-message').textContent,/Силуэт модели, собранный из вашего FBX/);
+ outline=null;await open();assert.match(app.get('report-summary').textContent,/отклонение не больше 2 см/);assert.match(app.get('preview-message').textContent,/Упрощённая модель, собранная из вашего FBX/);
+});
+test('a site plan is shown as its lines and never as a model',async()=>{
+ const artifacts=[{id:'p'.repeat(32),kind:'preview'}];let provenance='site_plan',asked=0;
+ const app=await appHarness({jobArtifacts:()=>artifacts,artifactPath:(job,id)=>`/artifact/${id}`,getJob:async id=>({id,state:'completed',inputKind:'dwg',inputHash:'b'.repeat(64)}),
+  api:async path=>{if(path==='/api/config')return {sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:formats};if(path==='/api/auth/me')return {csrfToken:'token'};return {provenance};},
+  apiBytes:async()=>{asked++;return new Uint8Array(4);},mountPreview:()=>({textured:0,dispose(){},reset(){}})});
+ const open=()=>vm.runInContext("openJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',{scroll:false})",app.context);
+ await open();assert.match(app.get('preview-message').textContent,/Линии генплана с высотами из вашего DWG/);assert.equal(asked,0);assert.equal(app.get('model-download').hidden,true);
+ // Чужой вид данных под видом генплана не открывается.
+ provenance='reduced_model';await open();assert.doesNotMatch(app.get('preview-message').textContent,/Линии генплана|Упрощённая модель/);
 });
 test('FBX view takes its pictures from the model file and falls back to the neutral view',async()=>{
  const artifacts=[{id:'p'.repeat(32),kind:'preview'},{id:'m'.repeat(32),kind:'model'}];let mounted,asked=[],kind='fbx',readable=true;const surfaces={surfaces:[{}]};
