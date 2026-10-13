@@ -5,10 +5,10 @@ const STOPPED=new Set(['failed','cancelled','interrupted','deleted']);
 // Панель сцены участка: загруженный файл сам встаёт в сцену, сооружению задаётся точка вставки, вид совмещённый.
 // deps: byId, element, loadPreview(job), mount(container, parts, markers), storage, hasPreview(job).
 export function setupScene(deps){
-  const {byId,element,loadPreview,mount,storage,hasPreview}=deps;
-  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',readyUsed='';
+  const {byId,element,loadPreview,mount,storage,hasPreview,focused}=deps;
+  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',readyUsed='',loaded=false;
   // Файлы сцены, которые на этой странице ещё обрабатывались: их готовность собирает сцену.
-  const pending=new Set();
+  const pending=new Set(),seen=new Set();
   const previews=new Map();
   function read(){try{return storage?.getItem(SCENE_KEY)??'';}catch{return'';}}
   function save(){try{storage?.setItem(SCENE_KEY,writeScene(scene));}catch{ /* Сцена тогда живёт до закрытия страницы. */ }}
@@ -49,12 +49,17 @@ export function setupScene(deps){
     const state=waiting(building.job);
     node.append(head,fields,...(state?[element('p',state,'small')]:[]));return node;
   }
-  function render(){
+  const usedReady=()=>[scene.plan,...scene.buildings.map(building=>building.job)].filter(id=>id&&find(id)).join();
+  // Строка о генплане не затирает чужое сообщение, пока её не просят явно.
+  function render(force=false){
+    const active=focused?.(),id=active?.id||'',caret=id.startsWith('scene-')?[active.selectionStart,active.selectionEnd]:null;
     fill(byId('scene-plan'),ready(kind=>kind==='dwg'),scene.plan,'Без генплана');
     byId('scene-buildings').replaceChildren(...scene.buildings.map(row));
     byId('scene-add').disabled=scene.buildings.length>=MAX_BUILDINGS;
-    const state=waiting(scene.plan,true),text=state?`Генплан: ${state}`:'';
-    if(text)say(text);else if(planSaid&&byId('scene-message').textContent===planSaid)say('');
+    // Поле, в которое пользователь вводит числа, остаётся под курсором после перерисовки строк.
+    if(caret){const node=byId(id);node.focus?.();try{node.setSelectionRange?.(...caret);}catch{ /* У списка выбора каретки нет. */ }}
+    const state=waiting(scene.plan,true),text=state?`Генплан: ${state}`:'',said=byId('scene-message').textContent;
+    if(text&&(force||!said||said===planSaid))say(text);else if(!text&&planSaid&&said===planSaid)say('');
     planSaid=text;
   }
   async function preview(job){
@@ -69,7 +74,11 @@ export function setupScene(deps){
   async function show(){
     const turn=++epoch,planJob=find(scene.plan);
     const chosen=scene.buildings.map((building,index)=>({index,job:find(building.job),at:placement(building)})).filter(item=>item.job);
-    if(!planJob&&!chosen.length){say('Выберите генплан или сооружение из своих моделей. Сначала загрузите файлы в разделе выше.',true);return;}
+    readyUsed=usedReady();
+    if(!planJob&&!chosen.length){
+      const states=[waiting(scene.plan,true)&&`Генплан: ${waiting(scene.plan,true)}`,...scene.buildings.map(building=>waiting(building.job))].filter(Boolean);
+      say(states.join(' ')||'Выберите генплан или сооружение из своих моделей. Сначала загрузите файлы в разделе выше.',!states.length);return;
+    }
     say('Собираем сцену…');
     try{
       const [plan,...models]=await Promise.all([planJob?preview(planJob):null,...chosen.map(item=>preview(item.job))]);
@@ -86,7 +95,7 @@ export function setupScene(deps){
     }catch{if(turn===epoch)say('Не удалось открыть данные просмотра. Проверьте, что модели обработаны, и повторите.',true);}
   }
   function clear(){epoch++;viewer?.dispose();viewer=null;shown=false;previews.clear();byId('scene-reset').disabled=true;}
-  byId('scene-plan').addEventListener('change',()=>{scene.plan=byId('scene-plan').value;changed();});
+  byId('scene-plan').addEventListener('change',()=>{scene.plan=byId('scene-plan').value;render();changed();});
   byId('scene-add').addEventListener('click',()=>{if(scene.buildings.length<MAX_BUILDINGS){scene.buildings.push(emptyBuilding());save();render();}});
   byId('scene-show').addEventListener('click',()=>{void show();});
   byId('scene-reset').addEventListener('click',()=>viewer?.reset());
@@ -98,29 +107,37 @@ export function setupScene(deps){
       const used=new Set([scene.plan,...scene.buildings.map(building=>building.job)]);
       const key=JSON.stringify([jobs.filter(job=>job.state==='completed'&&hasPreview(job)).map(job=>[job.id,job.inputKind,job.displayName]),jobs.filter(job=>used.has(job.id)).map(job=>[job.id,job.state])]);
       // Загруженный файл показывается в сцене сам, как только обработан, в том числе после перезагрузки страницы.
-      let arrived=false;
+      let arrived=false;loaded=true;
+      // Задание, которое было в списке и пропало, удалено: его строка больше не ждёт.
+      const present=new Set(jobs.map(job=>job.id));
+      for(const id of pending)if(seen.has(id)&&!present.has(id))pending.delete(id);
       for(const job of jobs)if(used.has(job.id)){
+        seen.add(job.id);
         if(find(job.id))arrived=pending.delete(job.id)||arrived;
         else if(STOPPED.has(job.state)||job.state==='completed')pending.delete(job.id);
         else pending.add(job.id);
       }
-      const now=[...used].filter(id=>id&&find(id)).join();
-      const fresh=arrived||(shown&&now!==readyUsed);readyUsed=now;
-      if(key!==listed){listed=key;render();}
+      const fresh=arrived||(shown&&usedReady()!==readyUsed);
+      if(key!==listed){listed=key;render(!fresh);}
       if(fresh)void show();
     },
     // Только что загруженный файл встаёт в сцену по своему виду: чертёж генпланом, модель сооружением.
     accept(id,kind){
-      if(kind==='dwg')scene.plan=id;
+      let placed='building';
+      if(kind==='dwg'){placed=scene.plan&&scene.plan!==id&&jobs.some(job=>job.id===scene.plan)?'replaced':'plan';scene.plan=id;}
       else if(BUILDING_KINDS.has(kind)){
         if(!scene.buildings.some(building=>building.job===id)){
-          const free=scene.buildings.find(building=>!building.job||(!pending.has(building.job)&&!jobs.some(job=>job.id===building.job)))||(scene.buildings.length<MAX_BUILDINGS?scene.buildings[scene.buildings.push(emptyBuilding())-1]:null);
+          // Строку отдаём по порядку: с отказом обработки (её числа нужны повторной загрузке), пустую, с пропавшим заданием.
+          const state=building=>jobs.find(job=>job.id===building.job)?.state;
+          const gone=building=>loaded&&!pending.has(building.job)&&!jobs.some(job=>job.id===building.job);
+          const free=scene.buildings.find(building=>STOPPED.has(state(building)))||scene.buildings.find(building=>!building.job)||scene.buildings.find(gone)
+            ||(scene.buildings.length<MAX_BUILDINGS?scene.buildings[scene.buildings.push(emptyBuilding())-1]:null);
           if(!free)return'full';
           free.job=id;
         }
       }else return'';
-      pending.add(id);listed='';save();render();
-      return kind==='dwg'?'plan':'building';
+      pending.add(id);listed='';save();render(true);
+      return placed;
     },
     clear,show,
     scene:()=>scene,

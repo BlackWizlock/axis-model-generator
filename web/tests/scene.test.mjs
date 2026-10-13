@@ -138,3 +138,31 @@ test('a reloaded page still shows the scene once its file is processed and a sta
  assert.equal(next.control.accept('r'.repeat(32),'fbx'),'building');
  assert.deepEqual(next.control.scene().buildings.map(building=>[building.job,building.x]),[['r'.repeat(32),'8010']]);
 });
+test('rows are reused with care and the shown scene is not rebuilt without a reason',async()=>{
+ const R='r'.repeat(32),P='p'.repeat(32),H='h'.repeat(32),N='n'.repeat(32);
+ // Список заданий ещё не получен: занятая строка сохранённой сцены новому файлу не отдаётся.
+ const first=panel();first.control.jobs(jobs);first.control.accept(H,'fbx');
+ const cold=panel({saved:first.stored.get(SCENE_KEY)});cold.control.accept(N,'fbx');
+ assert.deepEqual(cold.control.scene().buildings.map(building=>building.job),[H,N]);
+ // Отказ обработки: повторно загруженный файл получает ту же строку с её числами.
+ const retry=panel();retry.control.jobs(jobs);retry.control.accept(R,'fbx');
+ const x=retry.input('scene-0-x');x.value='77';x.events.input();
+ retry.control.jobs(jobs.map(job=>job.id===R?{...job,state:'failed'}:job));
+ assert.equal(retry.control.accept(N,'fbx'),'building');assert.deepEqual(retry.control.scene().buildings.map(building=>[building.job,building.x]),[[N,'77']]);
+ // Задание удалено во время обработки: строка освобождается без перезагрузки страницы.
+ const gone=panel();gone.control.jobs(jobs);gone.control.accept(R,'fbx');gone.control.jobs(jobs);gone.control.jobs(jobs.filter(job=>job.id!==R));
+ gone.control.accept(N,'fbx');assert.deepEqual(gone.control.scene().buildings.map(building=>building.job),[N]);
+ // Второй чертёж: сайт говорит о замене, под сценой стоит состояние нового чертежа, а не просьба выбрать файл.
+ const app=panel();app.control.jobs(jobs);app.byId('scene-plan').value=P;app.byId('scene-plan').events.change();
+ await app.control.show();assert.equal(app.mounted.length,1);
+ const drawing={id:'d'.repeat(32),state:'running',inputKind:'dwg',displayName:'new.dwg'};
+ assert.equal(app.control.accept(drawing.id,'dwg'),'replaced');app.control.jobs([...jobs,drawing]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(app.message(),'Генплан: new.dwg принят и обрабатывается.');
+ app.control.jobs([...jobs,{...drawing,state:'completed'}]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(app.mounted.length,2);assert.match(app.message(),/В сцене: генплан/);
+ // Тот же список после показа сцену не пересобирает.
+ app.control.jobs([...jobs,{...drawing,state:'completed'}]);app.control.jobs([...jobs,{...drawing,state:'completed'},{id:'o'.repeat(32),state:'completed',inputKind:'fbx',displayName:'other.fbx'}]);
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(app.mounted.length,2);
+ const manual=panel();manual.control.jobs(jobs);manual.byId('scene-plan').value=P;manual.byId('scene-plan').events.change();await manual.control.show();
+ manual.control.jobs([...jobs]);manual.control.jobs(jobs.map(job=>({...job})));await new Promise(resolve=>setImmediate(resolve));assert.equal(manual.mounted.length,1);
+});

@@ -74,3 +74,14 @@ for(const reservedVersion of [0,2,null,'1']) test(`invalid reservation version r
  const m=mocks({reservedVersion});
  try{await assert.rejects(uploadFile(m.file,'portable-package','csrf',()=>{},m.controller.signal),error=>error.code==='invalid_response');assert.equal(m.calls.some(call=>call[0]==='PUT'),false);}finally{m.restore();}
 });
+test('a part the storage did not confirm is sent again and a lasting refusal is reported',async()=>{
+ for(const [busy,parts] of [[2,3],[3,3]]){
+  const m=mocks({size:3}),Real=globalThis.XMLHttpRequest;let left=busy;
+  globalThis.XMLHttpRequest=class extends Real{send(blob){if(left-->0){this.status=503;this.responseText=JSON.stringify({error:{code:'storage_unavailable'}});this.onload();return;}super.send(blob);}};
+  try{
+   const run=uploadFile(m.file,'portable-package','csrf',()=>{},m.controller.signal);
+   if(busy===2)assert.equal((await run).state,'ready');else await assert.rejects(run,error=>error.status===503);
+   assert.equal(m.calls.filter(c=>c[0]==='PUT').length,parts);
+  }finally{m.restore();}
+ }
+});
