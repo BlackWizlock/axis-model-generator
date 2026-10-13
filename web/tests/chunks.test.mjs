@@ -85,3 +85,9 @@ test('a part the storage did not confirm is sent again and a lasting refusal is 
   }finally{m.restore();}
  }
 });
+test('an upload removed while the storage refused reports the refusal and not a timeout',async()=>{
+ const m=mocks({size:3}),Real=globalThis.XMLHttpRequest,list=globalThis.fetch;let refused=false;
+ globalThis.XMLHttpRequest=class extends Real{send(){refused=true;this.status=503;this.responseText=JSON.stringify({error:{code:'storage_unavailable'}});this.onload();}};
+ globalThis.fetch=async(path,options)=>refused&&options.method==='GET'&&path===`/api/uploads/${id}`?new Response(JSON.stringify(row(3,0,'deleted')),{headers:{'Content-Type':'application/json'}}):list(path,options);
+ try{await assert.rejects(uploadFile(m.file,'portable-package','csrf',()=>{},m.controller.signal),error=>error.status===503);assert.equal(m.calls.filter(c=>c[0]==='PUT').length,1);}finally{m.restore();}
+});
