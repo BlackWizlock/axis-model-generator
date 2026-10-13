@@ -99,3 +99,42 @@ test('buildings without a plan stand around the first of them and a failed load 
  await broken.control.show();assert.match(broken.message(),/Не удалось открыть данные просмотра/);assert.equal(broken.mounted.length,0);
  for(let i=0;i<20;i++)app.byId('scene-add').events.click();assert.equal(app.byId('scene-buildings').children.length,MAX_BUILDINGS);assert.equal(app.byId('scene-add').disabled,true);
 });
+test('an uploaded file takes its place in the scene by its kind and is shown once processed',async()=>{
+ const app=panel();app.control.jobs(jobs);
+ assert.equal(app.control.accept('r'.repeat(32),'fbx'),'building');assert.equal(app.control.scene().buildings[0].job,'r'.repeat(32));
+ assert.ok(app.byId('scene-buildings').children[0].all().some(node=>/later\.fbx принят и обрабатывается/.test(node.text)));
+ assert.equal(app.control.accept('p'.repeat(32),'dwg'),'plan');assert.equal(app.byId('scene-plan').value,'p'.repeat(32));
+ assert.equal(app.control.accept('z'.repeat(32),'portable-package'),'');assert.equal(app.mounted.length,0);
+ for(const [name,value] of [['x','8010'],['y','1920'],['z','138,90']]){const node=app.input(`scene-0-${name}`);node.value=value;node.events.input();}
+ // Задание обработано: сцена собирается сама, без кнопки.
+ app.control.jobs(jobs.map(job=>job.id==='r'.repeat(32)?{...job,state:'completed'}:job));await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(app.mounted.at(-1).parts.length,2);assert.match(app.message(),/В сцене: генплан и сооружений 1/);
+ assert.equal(app.input('scene-0-x').value,'8010');assert.equal(app.input('scene-0-job').value,'r'.repeat(32));
+ // Следующий файл получает свою строку; тот же файл второй раз строку не занимает.
+ assert.equal(app.control.accept('h'.repeat(32),'fbx'),'building');assert.equal(app.control.accept('h'.repeat(32),'fbx'),'building');
+ assert.deepEqual(app.control.scene().buildings.map(building=>building.job),['r'.repeat(32),'h'.repeat(32)]);
+ for(let i=2;i<MAX_BUILDINGS;i++)assert.equal(app.control.accept(String(i).padStart(32,'0'),'zip-fbx'),'building');
+ assert.equal(app.control.accept('f'.repeat(32),'fbx'),'full');assert.equal(app.control.scene().buildings.length,MAX_BUILDINGS);
+ const stopped=panel();stopped.control.accept('r'.repeat(32),'fbx');stopped.control.jobs(jobs.map(job=>job.id==='r'.repeat(32)?{...job,state:'failed'}:job));
+ assert.ok(stopped.byId('scene-buildings').children[0].all().some(node=>/обработка не завершена/.test(node.text)));
+});
+test('a reloaded page still shows the scene once its file is processed and a stale row is reused',async()=>{
+ const draft=panel(),id='d'.repeat(32),drawing={id,state:'running',inputKind:'dwg',displayName:'site.dwg'};
+ draft.control.accept(id,'dwg');
+ // Страница перезагружена: в памяти осталась только сохранённая сцена.
+ const app=panel({saved:draft.stored.get(SCENE_KEY)});app.control.jobs([drawing]);
+ assert.equal(app.message(),'Генплан: site.dwg принят и обрабатывается.');assert.equal(app.mounted.length,0);
+ app.control.jobs([{...drawing,state:'completed'}]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(app.mounted.length,1);assert.match(app.message(),/В сцене: генплан и сооружений 0/);assert.equal(app.byId('scene-plan').value,id);
+ // Постороннее задание показанную сцену не пересобирает.
+ app.control.jobs([{...drawing,state:'completed'},{id:'o'.repeat(32),state:'completed',inputKind:'fbx',displayName:'other.fbx'}]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(app.mounted.length,1);
+ // Отказ обработки снимает ожидание и остаётся в сообщении.
+ const failed=panel({saved:draft.stored.get(SCENE_KEY)});failed.control.jobs([drawing]);failed.control.jobs([{...drawing,state:'failed'}]);
+ assert.match(failed.message(),/Генплан: site\.dwg: обработка не завершена/);assert.equal(failed.mounted.length,0);
+ // Строка с заданием, которого больше нет в списке, отдаётся новому файлу вместе со своими числами.
+ const old=panel();old.control.accept('g'.repeat(32),'fbx');old.input('scene-0-x').value='8010';old.input('scene-0-x').events.input();
+ const next=panel({saved:old.stored.get(SCENE_KEY)});next.control.jobs(jobs);
+ assert.equal(next.control.accept('r'.repeat(32),'fbx'),'building');
+ assert.deepEqual(next.control.scene().buildings.map(building=>[building.job,building.x]),[['r'.repeat(32),'8010']]);
+});
