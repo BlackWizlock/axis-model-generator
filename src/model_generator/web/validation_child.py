@@ -27,10 +27,9 @@ from .process_guard import VALIDATION_FILE_BYTES
 # The converter is a separate installed program, never linked into this package.
 DWG_CONVERTER = '/usr/local/lib/libredwg/dwg2dxf'
 DWG_SECONDS = 60
-# The converter writes stray bytes into text fields on some runs and the result is
-# then not a DXF. Measured on a real site plan: one run in three. Geometry of the
-# runs that read is identical, so a refused result is converted again.
-DWG_ATTEMPTS = 6
+# Reading keeps every line of the DXF in memory, about 130 bytes each. A drawing of
+# short lines within the size limit would otherwise end the process without a report.
+DWG_PAIRS = 3_500_000
 PLAN_COVERAGE = {'technical': 'partial', 'profile': 'research', 'procedure': 'unknown', 'external': 'not_checked'}
 
 # The view of a reduced model is attempted only while the process has this
@@ -132,7 +131,7 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
     elif kind == 'dwg':
         if input_path.name != 'input.bin': raise ValueError('Unsafe child input')
         # The drawing and its DXF are files of this process: a larger one is a budget finding, not a failed write.
-        limits = Limits(input_bytes=settings.input_bytes, dxf_bytes=VALIDATION_FILE_BYTES)
+        limits = Limits(input_bytes=settings.input_bytes, dxf_bytes=VALIDATION_FILE_BYTES, dxf_pairs=DWG_PAIRS)
         with input_path.open('rb') as stream: wire=stream.read(settings.input_bytes+1)
         if len(wire)>settings.input_bytes: raise ValueError('Input budget changed')
         report = Report(hashlib.sha256(wire).hexdigest(), profile={'status': 'research', 'normative_readiness': False},
@@ -140,13 +139,8 @@ def validate_input(input_path: Path, kind: str, settings: ChildSettings, observe
         preview_reason = 'preview_unsupported'
         if observer: observer('input.dwg', 'checking')
         try:
-            for attempt in range(DWG_ATTEMPTS):
-                dxf = dwg_to_dxf(wire, limits, program=settings.dwg_converter, timeout=DWG_SECONDS, workdir=settings.scratch)
-                try:
-                    facts, findings, mesh = inspect_plan(dxf, limits)
-                    break
-                except ReadError as error:
-                    if error.rule != 'dxf.integrity' or attempt == DWG_ATTEMPTS - 1: raise
+            dxf = dwg_to_dxf(wire, limits, program=settings.dwg_converter, timeout=DWG_SECONDS, workdir=settings.scratch)
+            facts, findings, mesh = inspect_plan(dxf, limits)
             del wire, dxf
             report.files.append(facts)
             report.findings.extend(findings)
@@ -257,7 +251,7 @@ def main():
         result = validate_input(args.scratch / input_filename(args.descriptor_version), args.kind,
                                 ChildSettings(args.scratch,preview_limits=preview_limits),observer)
         import resource
-        # Preview stage uses 16 MiB; report stage is explicitly capped at 4 MiB.
+        # Earlier stages write larger files; report stage is explicitly capped at 4 MiB.
         resource.setrlimit(resource.RLIMIT_FSIZE,(4*1024**2,)*2)
         output = json.dumps(result.report, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
         if len(output) > 4 * 1024**2:

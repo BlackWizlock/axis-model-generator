@@ -47,7 +47,7 @@ DENIED = ('socket', 'socketpair', 'connect', 'bind', 'listen', 'accept', 'accept
           'io_uring_enter', 'ptrace', 'bpf', 'process_vm_readv', 'process_vm_writev',
           'pidfd_getfd', 'setns', 'unshare')
 # No file written by the validation process or its converter may be larger.
-VALIDATION_FILE_BYTES = 16 * 1024**2
+VALIDATION_FILE_BYTES = 64 * 1024**2
 BLENDER_DENIED=('setsid','setpgid','mount','umount2','pivot_root','chroot',
                 'open_by_handle_at','name_to_handle_at','execveat')
 

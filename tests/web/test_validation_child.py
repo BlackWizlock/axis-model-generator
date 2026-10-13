@@ -97,24 +97,6 @@ class NeutralInputTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Unsafe child input'):
                 validate_input(root / 'input.zip', 'dwg', ChildSettings(scratch=root))
 
-    def test_site_plan_converted_into_a_broken_file_is_converted_again(self):
-        from model_generator.web import validation_child
-        from test_site_plan import PLAN
-        for broken, rules in ((2, [('plan.heights', 'pass')]), (validation_child.DWG_ATTEMPTS, [('dxf.integrity', 'fail')])):
-            with self.subTest(broken=broken), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                (root / 'input.bin').write_bytes(b'AC1032' + b'\x00' * 64)
-                script = root / 'convert.py'
-                # The first runs break a text value across lines, as the real converter does.
-                script.write_text('import sys\nfrom pathlib import Path\n'
-                                  'runs = Path(__file__).with_name("runs")\n'
-                                  'n = int(runs.read_text()) if runs.exists() else 0\nruns.write_text(str(n + 1))\n'
-                                  f'data = bytes.fromhex({PLAN.hex()!r})\n'
-                                  f'Path(sys.argv[3]).write_bytes(b"  1\\nstray\\nbytes\\n" + data if n < {broken} else data)\n')
-                result = validate_input(root / 'input.bin', 'dwg', ChildSettings(scratch=root, dwg_converter=[sys.executable, str(script)]))
-                self.assertEqual([(f['rule_id'], f['status']) for f in result.report['findings']], rules)
-                self.assertEqual(int((root / 'runs').read_text()), min(broken + 1, validation_child.DWG_ATTEMPTS))
-
     def test_site_plan_that_cannot_be_read_is_reported_not_guessed(self):
         from test_dxf_heights import dxf
         from test_site_plan import polyline
@@ -138,6 +120,14 @@ class NeutralInputTests(unittest.TestCase):
             (root / 'input.bin').write_bytes(b'AC1032' + b'\x00' * VALIDATION_FILE_BYTES)
             result = validate_input(root / 'input.bin', 'dwg', settings)
             self.assertEqual([f['rule_id'] for f in result.report['findings']], ['dwg.budget'])
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory, mock.patch('model_generator.web.validation_child.DWG_PAIRS', 8):
+            # A drawing of more lines than memory holds is a budget finding, not a process ended without a report.
+            root = Path(directory)
+            settings = self.plan_input(root, flat)
+            (root / 'input.bin').write_bytes(b'AC1032' + b'\x00' * 64)
+            result = validate_input(root / 'input.bin', 'dwg', settings)
+            self.assertEqual([f['rule_id'] for f in result.report['findings']], ['dxf.budget'])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.plan_input(root, flat)

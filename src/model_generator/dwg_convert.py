@@ -14,6 +14,16 @@ from .limits import Limits, ReadError
 
 # DWG files start with their format version, for example AC1032 for R2018.
 SIGNATURE = re.compile(rb'AC10(12|14|15|18|21|24|27|32)')
+# The converter writes stray bytes into XRECORD values of the OBJECTS section on
+# some runs, and the file is then not a DXF. Measured on a real site plan: one
+# run in three, every difference between runs inside that section. Geometry
+# ends before it, so the result is cut there.
+OBJECTS = re.compile(rb'(?:^|\n)[ \t]*0\r?\n[ \t]*SECTION\r?\n[ \t]*2\r?\n[ \t]*OBJECTS[ \t]*\r?\n')
+
+
+def _geometry(dxf):
+    found = OBJECTS.search(dxf)
+    return dxf if found is None else dxf[:found.start()] + b'\n  0\nEOF\n'
 
 
 def dwg_to_dxf(data, limits=None, program='dwg2dxf', timeout=120, workdir=None):
@@ -45,4 +55,4 @@ def dwg_to_dxf(data, limits=None, program='dwg2dxf', timeout=120, workdir=None):
             raise ReadError('dwg.budget', 'Converted DXF size budget exceeded')
         if result.returncode or not written:
             raise ReadError('dwg.convert', 'DWG conversion failed')
-        return target.read_bytes()
+        return _geometry(target.read_bytes())
