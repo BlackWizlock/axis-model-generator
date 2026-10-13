@@ -31,6 +31,14 @@ class ConvertTests(unittest.TestCase):
         tool = program(self.folder, 'cp "$4" "$3"')
         self.assertEqual(dwg_to_dxf(DWG, program=tool), DWG)
 
+    def test_objects_the_converter_breaks_are_cut_off(self):
+        # Geometry ends before OBJECTS; what the converter wrote there is not read.
+        drawing = Path(self.folder) / 'drawing.dxf'
+        drawing.write_bytes(b'  0\r\nSECTION\r\n  2\r\nENTITIES\r\n  0\r\nENDSEC\r\n'
+                            b'  0\r\nSECTION\r\n  2\r\nOBJECTS\r\n  1\r\nstray\x00\r\nbytes\r\n  0\r\nENDSEC\r\n  0\r\nEOF\r\n')
+        tool = program(self.folder, f'cp "{drawing}" "$3"')
+        self.assertEqual(dwg_to_dxf(DWG, program=tool), b'  0\r\nSECTION\r\n  2\r\nENTITIES\r\n  0\r\nENDSEC\r\n  0\nEOF\n')
+
     def test_only_known_dwg_versions_reach_the_converter(self):
         tool = program(self.folder, 'cp "$4" "$3"')
         for data in (b'', b'AC1009' + b'\x00' * 8, b'  0\nSECTION\n', b'PK\x03\x04'):
