@@ -213,3 +213,37 @@ test('the line under the scene follows its files and a displaced drawing rebuild
  swap.byId('scene-plan').value=drawing.id;swap.byId('scene-plan').events.change();await tick();assert.equal(swap.mounted.length,2);
  swap.control.jobs(done.map(job=>({...job})));await tick();assert.equal(swap.mounted.length,2);
 });
+test('once the scene was asked for it stays asked and an accepted file is never called missing',async()=>{
+ const R='r'.repeat(32),P='p'.repeat(32),H='h'.repeat(32),tick=()=>new Promise(resolve=>setImmediate(resolve));
+ const numbers=app=>{for(const [name,value] of [['x','1'],['y','2'],['z','3']]){const node=app.input(`scene-0-${name}`);node.value=value;node.events.input({type:'input'});node.events.change({type:'change'});}};
+ // Кнопка на пустой сцене, затем ручной выбор и числа: сцена показывается без второго нажатия.
+ const empty=panel();empty.control.jobs(jobs);await empty.byId('scene-show').events.click();assert.match(empty.message(),/Выберите генплан или сооружение/);
+ empty.input('scene-0-job').value=H;empty.input('scene-0-job').events.change({type:'change'});numbers(empty);await tick();
+ assert.ok(empty.mounted.length>=1);assert.match(empty.message(),/В сцене: сооружений 1/);
+ // Просьба выбрать файл переживает опрос списка, пока файлов сцены нет.
+ const asked=panel();asked.control.jobs(jobs);await asked.byId('scene-show').events.click();asked.control.jobs(jobs.slice(0,3));
+ assert.match(asked.message(),/Выберите генплан или сооружение/);
+ // После кнопки загружен ещё один чертёж: строка о нём не отменяет запрос, ручной выбор готового генплана идёт в сцену.
+ const late={id:'d'.repeat(32),state:'running',inputKind:'dwg',displayName:'site.dwg'},more=panel();
+ more.control.jobs(jobs);await more.byId('scene-show').events.click();more.control.accept(late.id,'dwg');more.control.jobs([...jobs,late]);
+ assert.equal(more.message(),'Генплан: site.dwg принят и обрабатывается.');
+ more.byId('scene-plan').value=P;more.byId('scene-plan').events.change({type:'change'});await tick();
+ assert.equal(more.mounted.length,1);assert.match(more.message(),/В сцене: генплан/);
+ // Кнопка нажата, пока принятого файла ещё нет в списке: под сценой его состояние, а не просьба выбрать файл.
+ const early=panel();early.control.jobs(jobs.filter(job=>job.id!==R));early.control.accept(R,'fbx');await early.byId('scene-show').events.click();
+ assert.equal(early.message(),'Файл принят и обрабатывается. Точку вставки можно задать уже сейчас.');
+ early.control.jobs(jobs);assert.match(early.message(),/later\.fbx принят и обрабатывается/);
+ early.control.jobs(jobs.map(job=>job.id===R?{...job,state:'failed'}:job));assert.match(early.message(),/later\.fbx: обработка не завершена/);
+ // Смена пользователя снимает запрос: выбор снова ничего не показывает сам.
+ const reset=panel();reset.control.jobs(jobs);await reset.byId('scene-show').events.click();reset.control.clear();reset.byId('scene-message').textContent='своё';
+ reset.input('scene-0-job').value=H;reset.input('scene-0-job').events.change({type:'change'});numbers(reset);await tick();
+ assert.equal(reset.mounted.length,0);assert.equal(reset.message(),'своё');
+ // Уход со страницы запрос сцены помнит: после возврата выбор снова идёт в сцену без кнопки.
+ const back=panel();back.control.jobs(jobs);await back.byId('scene-show').events.click();back.control.clear(true);back.control.jobs(jobs);
+ back.input('scene-0-job').value=H;back.input('scene-0-job').events.change({type:'change'});numbers(back);await tick();
+ assert.ok(back.mounted.length>=1);assert.match(back.message(),/В сцене: сооружений 1/);
+ // Смена пользователя забывает и принятый файл, которого в списке так и не было: его строка свободна.
+ const gone=panel();gone.control.jobs(jobs.filter(job=>job.id!==R));gone.control.accept(R,'fbx');gone.control.clear();gone.control.jobs([]);gone.control.jobs(jobs.slice(0,2));
+ assert.equal(gone.byId('scene-buildings').all().some(node=>/принят и обрабатывается/.test(node.text)),false);
+ assert.equal(gone.control.accept(H,'fbx'),'building');assert.equal(gone.control.scene().buildings.length,1);
+});

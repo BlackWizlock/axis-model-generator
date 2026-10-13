@@ -1,10 +1,14 @@
 # check=error=true
-FROM golang:1.24.8-bookworm@sha256:4ed690d6649d63c312b99a6120025ec79ce3b542968a37da53d6236c7c61a848 AS build
+# The Go toolchain cross-compiles: the stage runs on the builder's own processor
+# and targets the image platform through GOOS and GOARCH.
+FROM --platform=$BUILDPLATFORM golang:1.24.8-bookworm@sha256:4ed690d6649d63c312b99a6120025ec79ce3b542968a37da53d6236c7c61a848 AS build
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /source
 RUN curl --fail --silent --show-error --location https://codeload.github.com/minio/minio/tar.gz/9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a -o /source.tar.gz \
     && echo '45521908307306e925c98d629e1c17d78c8b72b6ee242b1bfb1409f7d8ee5841  /source.tar.gz' | sha256sum -c - \
     && tar -xzf /source.tar.gz --strip-components=1 \
-    && CGO_ENABLED=0 GOTOOLCHAIN=local go build -p 2 -trimpath -o /minio .
+    && CGO_ENABLED=0 GOTOOLCHAIN=local GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -p 2 -trimpath -o /minio .
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
 COPY --from=build /minio /usr/local/bin/minio
 COPY --from=build /source/LICENSE /usr/share/minio/LICENSE

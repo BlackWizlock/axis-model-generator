@@ -250,14 +250,14 @@ with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verifie
         from model_generator.web.s3_store import ObjectStore
         dto=self.create(self.upload()).json(); settings=self.worker_settings(); db=Database(settings)
         original=ObjectStore._put_file
-        def transfer(objects,intent,path,persist):
+        def transfer(objects,intent,path,persist,*again):
             killed=False
             def callback(multipart):
                 nonlocal killed
                 if not killed:
                     killed=True; self.kill_dedicated_lease(db)
                 persist(multipart)
-            return original(objects,intent,path,callback)
+            return original(objects,intent,path,callback,*again)
         try:
             with self.assertRaises((RuntimeError,psycopg.Error)):
                 with worker_lease(db,settings,'7'*32),patch.object(ObjectStore,'_put_file',transfer):
@@ -451,7 +451,7 @@ with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verifie
                 dto=self.create(self.upload(make_package(),'portable-package')).json()
                 settings=self.worker_settings(); db=Database(settings)
                 original=ObjectStore._put_file; cancelled=False
-                def transfer(objects,intent,path,persist):
+                def transfer(objects,intent,path,persist,*again):
                     nonlocal cancelled
                     def callback(multipart):
                         nonlocal cancelled
@@ -459,7 +459,7 @@ with worker_lease(db,settings,'d'*32),patch('model_generator.web.worker._verifie
                             cancelled=True
                             self.app.state.jobs.cancel(self.owner['userId'],dto['id'],int(time.time()))
                         persist(multipart)
-                    return original(objects,intent,path,callback)
+                    return original(objects,intent,path,callback,*again)
                 try:
                     with worker_lease(db,settings,'f'*32),patch.object(ObjectStore,'_put_file',transfer):
                         self.assertTrue(run_once(db,settings,'f'*32))

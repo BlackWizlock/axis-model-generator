@@ -39,6 +39,31 @@ class ObjectDescriptor:
     sha256: str
     content_type: str
 
+RETRY_PAUSES=(.5,1.5)
+
+def _transient(error):
+    # A refused connection, a late answer and a 5xx can pass on a second try; a 4xx cannot.
+    if isinstance(error,ClientError):
+        status=error.response.get('ResponseMetadata',{}).get('HTTPStatusCode')
+        return isinstance(status,int) and (status==429 or status>=500)
+    return isinstance(error,(BotoCoreError,OSError,TimeoutError))
+
+def _unavailable(error=None,message='Private storage is temporarily unavailable.'):
+    """Keep the class of the storage failure for the journal; never its message."""
+    failure=ApiError('storage_unavailable',message,503)
+    if error is not None:
+        cause=type(error).__name__
+        if isinstance(error,ClientError):
+            status=error.response.get('ResponseMetadata',{}).get('HTTPStatusCode'); code=error.response.get('Error',{}).get('Code')
+            cause+='.'+(str(status) if isinstance(status,int) else '0')
+            if isinstance(code,str) and re.fullmatch('[A-Za-z0-9]{1,40}',code): cause+='.'+code
+        failure.cause=cause; failure.transient=_transient(error)
+    return failure
+
+class _Fence(Exception):
+    """A failure of the caller's own fence: the database, never the storage."""
+    def __init__(self,error): super().__init__(); self.error=error
+
 class FilePart(io.RawIOBase):
     """Seekable file window. SDK hashing and socket writes read at most 64 KiB."""
     def __init__(self,file,start,length): self.file=file; self.start=start; self.length=length; self.position=0
@@ -239,10 +264,16 @@ class ObjectStore:
         deadline=min(time.monotonic()+600,intent.deadline or float('inf'))
         try:
             with self.transport.operation(deadline):
-                return self._put_file(intent,path,persist_multipart)
-        except (BotoCoreError,OSError,TimeoutError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
-    def _put_file(self,intent,path,persist_multipart):
+                for attempt,pause in enumerate((0,*RETRY_PAUSES)):
+                    if pause: time.sleep(pause)
+                    try: return self._put_file(intent,path,persist_multipart,*([True] if attempt else []))
+                    except ApiError as error:
+                        # One refusal of the storage must not fail the whole job while its deadline still allows a try.
+                        if (attempt==len(RETRY_PAUSES) or not getattr(error,'transient',False)
+                                or time.monotonic()+RETRY_PAUSES[attempt]>=deadline): raise
+        except (BotoCoreError,OSError,TimeoutError) as error:
+            raise _unavailable(error) from None
+    def _put_file(self,intent,path,persist_multipart,again=False):
         args=self._key(intent.key); started=time.monotonic(); total=0; sha=hashlib.sha256()
         # SHA outside DB and bounded independently of SDK multipart checksums.
         with path.open('rb') as file:
@@ -251,25 +282,39 @@ class ObjectStore:
                 if total>intent.reserved_bytes or time.monotonic()-started>600: raise ApiError('upload_size_mismatch','Upload size does not match.',409)
         if total!=intent.reserved_bytes: raise ApiError('upload_size_mismatch','Upload size does not match.',409)
         digest=sha.hexdigest()
+        def fence(upload):
+            # The fence talks to the database: its failure is not a refusal of the storage and is never tried again.
+            try: persist_multipart(upload)
+            except (OSError,TimeoutError,RuntimeError) as error: raise _Fence(error) from None
         try:
+            if again:
+                # A lost answer may hide a finished write; a half-made upload must not outlive its attempt.
+                stored=self.head(intent)
+                if stored is not None:
+                    if stored.bytes!=total or stored.sha256!=digest: raise RuntimeError('Private object verification failed')
+                    return stored
+                self.abort_multipart(intent)
             content_type=self._content_type(intent.key)
             multipart=self.client.create_multipart_upload(**args,ContentType=content_type,Metadata={'sha256':digest})['UploadId']
-            persist_multipart(multipart)  # Durable ID before any bytes, callback also fences abort.
+            fence(multipart)  # Durable ID before any bytes, callback also fences abort.
             parts=[]
             with path.open('rb') as file:
                 for index,start in enumerate(range(0,total,8*1024**2),1):
                     if time.monotonic()-started>600: raise TimeoutError
-                    persist_multipart(multipart)
+                    fence(multipart)
                     size=min(8*1024**2,total-start)
                     response=self.client.upload_part(**args,UploadId=multipart,PartNumber=index,Body=FilePart(file,start,size),ContentLength=size)
                     parts.append({'PartNumber':index,'ETag':response['ETag']})
-            persist_multipart(multipart)  # Abort wins before CompleteMultipartUpload too.
+            fence(multipart)  # Abort wins before CompleteMultipartUpload too.
             self.client.complete_multipart_upload(**args,UploadId=multipart,MultipartUpload={'Parts':parts},IfNoneMatch='*')
             descriptor=self.head(intent)
             if not descriptor or descriptor.bytes!=total or descriptor.sha256!=digest: raise RuntimeError('Private object verification failed')
             return descriptor
-        except (BotoCoreError,ClientError,OSError,TimeoutError,RuntimeError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except _Fence as fenced:
+            failure=_unavailable(fenced.error); failure.transient=False
+            raise failure from None
+        except (BotoCoreError,ClientError,OSError,TimeoutError,RuntimeError) as error:
+            raise _unavailable(error) from None
     def ensure_multipart(self,intent,sha256):
         """Recover only the stable attempt's MPU identity, never its part ledger."""
         try:
@@ -281,8 +326,8 @@ class ObjectStore:
                 if len(ids)>1: raise RuntimeError
                 if ids: return ids[0]
                 return self.client.create_multipart_upload(**args,ContentType=self._content_type(intent.key),Metadata={'sha256':sha256})['UploadId']
-        except (ClientError,BotoCoreError,OSError,TimeoutError,RuntimeError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except (ClientError,BotoCoreError,OSError,TimeoutError,RuntimeError) as error:
+            raise _unavailable(error) from None
 
     def upload_chunk(self,intent,number,path):
         try:
@@ -294,8 +339,8 @@ class ObjectStore:
                 etag=response['ETag']
                 if not isinstance(etag,str) or not 1<=len(etag.encode())<=256: raise RuntimeError
                 return etag
-        except (ClientError,BotoCoreError,OSError,TimeoutError,RuntimeError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except (ClientError,BotoCoreError,OSError,TimeoutError,RuntimeError) as error:
+            raise _unavailable(error) from None
 
     def complete_chunks(self,intent,parts):
         try:
@@ -304,8 +349,8 @@ class ObjectStore:
                 if self.head(intent) is not None: return
                 self.client.complete_multipart_upload(**self._key(intent.key),UploadId=intent.multipart_id,
                     MultipartUpload={'Parts':parts},IfNoneMatch='*')
-        except (ClientError,BotoCoreError,OSError,TimeoutError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except (ClientError,BotoCoreError,OSError,TimeoutError) as error:
+            raise _unavailable(error) from None
 
     def verify_ranges(self,intent,size,expected_sha,check):
         digest=hashlib.sha256(); total=0
@@ -335,8 +380,8 @@ class ObjectStore:
                 if total!=size or digest.hexdigest()!=expected_sha:
                     raise ApiError('upload_hash_mismatch','Stored input hash does not match.',409)
                 return ObjectDescriptor(intent.key,total,digest.hexdigest(),self._content_type(intent.key))
-        except (ClientError,BotoCoreError,OSError,TimeoutError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except (ClientError,BotoCoreError,OSError,TimeoutError) as error:
+            raise _unavailable(error) from None
 
     def head(self,intent):
         try:
@@ -347,8 +392,8 @@ class ObjectStore:
             return ObjectDescriptor(intent.key,response['ContentLength'],sha,response.get('ContentType','application/octet-stream'))
         except ClientError as error:
             if error.response['ResponseMetadata']['HTTPStatusCode']==404: return None
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
-        except (BotoCoreError,OSError): raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+            raise _unavailable(error) from None
+        except (BotoCoreError,OSError) as error: raise _unavailable(error) from None
     def abort_multipart(self,intent):
         args=self._key(intent.key)
         try:
@@ -364,7 +409,7 @@ class ObjectStore:
             after=self.client.list_multipart_uploads(Bucket=self.settings.bucket,Prefix=intent.key,MaxUploads=100)
             if after.get('IsTruncated') or any(item['Key']==intent.key for item in after.get('Uploads',[])):
                 raise ApiError('storage_unavailable','Private storage cleanup is incomplete.',503)
-        except (BotoCoreError,ClientError,OSError): raise ApiError('storage_unavailable','Private storage cleanup is incomplete.',503) from None
+        except (BotoCoreError,ClientError,OSError) as error: raise _unavailable(error,'Private storage cleanup is incomplete.') from None
     def delete(self,descriptor):
         try:
             self.client.delete_object(**self._key(descriptor.key))
@@ -373,15 +418,15 @@ class ObjectStore:
                 if error.response['ResponseMetadata']['HTTPStatusCode']==404: return
                 raise
             raise ApiError('storage_unavailable','Private storage cleanup is incomplete.',503)
-        except (BotoCoreError,ClientError,OSError): raise ApiError('storage_unavailable','Private storage cleanup is incomplete.',503) from None
+        except (BotoCoreError,ClientError,OSError) as error: raise _unavailable(error,'Private storage cleanup is incomplete.') from None
     @contextmanager
     def open_stream(self,descriptor):
         stream=None
         try:
             response=self.client.get_object(**self._key(descriptor.key)); stream=response['Body']
             yield stream
-        except (ClientError,BotoCoreError,OSError,TimeoutError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except (ClientError,BotoCoreError,OSError,TimeoutError) as error:
+            raise _unavailable(error) from None
         finally:
             if stream is not None: stream.close()
     def probe(self):
@@ -390,8 +435,8 @@ class ObjectStore:
             self.client.head_bucket(Bucket=self.settings.bucket)
             intent=ObjectIntent('0'*32,'0'*32,'0'*32,'owners/'+('0'*32)+'/jobs/'+('0'*32)+'/'+('0'*32)+'/report.json','complete',None,0)
             self.head(intent)
-        except (ClientError,BotoCoreError,OSError,TimeoutError):
-            raise ApiError('storage_unavailable','Private storage is temporarily unavailable.',503) from None
+        except (ClientError,BotoCoreError,OSError,TimeoutError) as error:
+            raise _unavailable(error) from None
 
     def presign_get(self,descriptor,expires_seconds):
         if isinstance(expires_seconds,bool) or not 1<=expires_seconds<=300: raise ValueError('Invalid private link lifetime')

@@ -2,11 +2,12 @@ import {SCENE_KEY,MAX_BUILDINGS,emptyBuilding,readScene,writeScene,placement,pla
 const FIELDS=[['x','X в чертеже, м'],['y','Y в чертеже, м'],['z','Отметка нуля, м'],['angle','Поворот, градусы'],['ax','Точка модели X, м'],['ay','Точка модели Y, м'],['az','Точка модели Z, м']];
 const BUILDING_KINDS=new Set(['fbx','zip-fbx']);
 const STOPPED=new Set(['failed','cancelled','interrupted','deleted']);
+const CHOOSE='Выберите генплан или сооружение из своих моделей. Сначала загрузите файлы в разделе выше.';
 // Панель сцены участка: загруженный файл сам встаёт в сцену, сооружению задаётся точка вставки, вид совмещённый.
 // deps: byId, element, loadPreview(job), mount(container, parts, markers), storage, hasPreview(job).
 export function setupScene(deps){
   const {byId,element,loadPreview,mount,storage,hasPreview,focused}=deps;
-  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',stateSaid='',readyUsed='',loaded=false;
+  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',lineSaid='',readyUsed='',loaded=false,wanted=false;
   // Файлы сцены, которые на этой странице ещё обрабатывались: их готовность собирает сцену.
   const pending=new Set(),seen=new Set();
   const previews=new Map();
@@ -18,7 +19,8 @@ export function setupScene(deps){
   // Файл из сцены, которого ещё нет среди готовых: что с ним сейчас.
   function waiting(id,plan=false){
     const job=id&&!find(id)?jobs.find(item=>item.id===id):null;
-    if(!job)return'';
+    // Файл уже принят, а в списке заданий его ещё нет: он обрабатывается, просить выбрать файл рано.
+    if(!job)return id&&!find(id)&&pending.has(id)?`Файл принят и обрабатывается.${plan?'':' Точку вставки можно задать уже сейчас.'}`:'';
     const name=job.displayName||'Файл';
     if(STOPPED.has(job.state))return`${name}: обработка не завершена. Загрузите файл ещё раз.`;
     return job.state==='completed'?`${name}: просмотр для этого файла недоступен.`:`${name} принят и обрабатывается.${plan?'':' Точку вставки можно задать уже сейчас.'}`;
@@ -26,22 +28,21 @@ export function setupScene(deps){
   // Состояния файлов сцены, которые ещё не готовы: строка под сценой, пока показывать нечего.
   function sayStates(asked=true){
     const states=[waiting(scene.plan,true)&&`Генплан: ${waiting(scene.plan,true)}`,...scene.buildings.map(building=>waiting(building.job))].filter(Boolean);
-    stateSaid=states.join(' ');
-    // Просьба выбрать файл уместна в ответ на кнопку; при опросе списка строка просто гаснет.
-    say(stateSaid||(asked?'Выберите генплан или сооружение из своих моделей. Сначала загрузите файлы в разделе выше.':''),asked&&!states.length);
+    // Просьба выбрать файл уместна в ответ на кнопку; при опросе списка строка состояний просто гаснет.
+    lineSaid=states.join(' ')||(asked?CHOOSE:'');
+    say(lineSaid,asked&&!states.length);
   }
-  const statesShown=()=>Boolean(stateSaid)&&byId('scene-message').textContent===stateSaid;
+  // Под сценой стоит строка, сказанная здесь же: состояния файлов или просьба выбрать файл.
+  const statesShown=()=>Boolean(lineSaid)&&byId('scene-message').textContent===lineSaid;
   function fill(select,rows,value,placeholder){
     const first=element('option',placeholder);first.value='';
     select.replaceChildren(first,...rows.map(job=>{const option=element('option',job.displayName||'Без имени');option.value=job.id;return option;}));
     select.value=rows.some(job=>job.id===value)?value:'';
   }
-  // Сцену уже просили показать: выбор и числа сразу идут в неё, в том числе пока под сценой стоят состояния файлов.
-  function settle(asked){save();if(shown||asked)void show();}
+  // Сцену просили кнопкой: с этого момента выбор и числа сразу идут в неё, что бы ни стояло под сценой.
   // Слушатель события: аргументов не принимает, объект события сюда попасть не должен.
-  function changed(){settle(statesShown());}
-  // Перерисовка строк может погасить строку состояний: была ли она, запоминаем до перерисовки.
-  function redrawn(){const asked=statesShown();render();settle(asked);}
+  function changed(){save();if(shown||wanted)void show();}
+  function redrawn(){render();changed();}
   function field(building,index,[name,label]){
     const box=element('div'),id=`scene-${index}-${name}`,caption=element('label',label),input=element('input');
     caption.setAttribute('for',id);input.id=id;input.type='text';input.setAttribute('inputmode','decimal');input.setAttribute('autocomplete','off');input.value=building[name];
@@ -104,10 +105,11 @@ export function setupScene(deps){
       say(text||`В сцене: ${plan?'генплан и ':''}сооружений ${set.length}. Красная веха отмечает точку вставки. Меняйте числа, вид пересобирается.`,Boolean(text));
     }catch{if(turn===epoch)say('Не удалось открыть данные просмотра. Проверьте, что модели обработаны, и повторите.',true);}
   }
-  function clear(){epoch++;viewer?.dispose();viewer=null;shown=false;previews.clear();byId('scene-reset').disabled=true;}
+  // Уход со страницы запрос сцены и ожидающие файлы помнит: их забывает только смена пользователя.
+  function clear(keep=false){epoch++;viewer?.dispose();viewer=null;shown=false;if(keep!==true){wanted=false;pending.clear();seen.clear();}previews.clear();byId('scene-reset').disabled=true;}
   byId('scene-plan').addEventListener('change',()=>{scene.plan=byId('scene-plan').value;redrawn();});
   byId('scene-add').addEventListener('click',()=>{if(scene.buildings.length<MAX_BUILDINGS){scene.buildings.push(emptyBuilding());save();render();}});
-  byId('scene-show').addEventListener('click',()=>{void show();});
+  byId('scene-show').addEventListener('click',()=>{wanted=true;void show();});
   byId('scene-reset').addEventListener('click',()=>viewer?.reset());
   render();
   return {
@@ -130,9 +132,10 @@ export function setupScene(deps){
       }
       const fresh=arrived||(shown&&usedReady()!==readyUsed);
       // Строка состояний, сказанная по кнопке, идёт за заданиями: отказ обработки в ней виден.
-      const stale=key!==listed&&statesShown();
+      const stale=key!==listed&&statesShown(),chosen=lineSaid===CHOOSE;
       if(key!==listed){listed=key;render(!fresh);}
-      if(fresh)void show();else if(stale)sayStates(false);
+      // Просьба выбрать файл остаётся, пока файлов сцены нет; строка состояний гаснет вместе с ними.
+      if(fresh)void show();else if(stale)sayStates(chosen);
     },
     // Только что загруженный файл встаёт в сцену по своему виду: чертёж генпланом, модель сооружением.
     accept(id,kind){

@@ -46,7 +46,7 @@ def serve():
             print('Synthetic dedicated backend terminated at '+mode,flush=True)
         if mode=='lease-multipart':
             original_transfer=worker.ObjectStore._put_file
-            def transfer(objects,intent,path,persist):
+            def transfer(objects,intent,path,persist,*again):
                 calls=0
                 def callback(multipart):
                     nonlocal calls
@@ -55,7 +55,7 @@ def serve():
                     # callback is immediately before CompleteMultipartUpload.
                     if calls==3: terminate_lease()
                     persist(multipart)
-                return original_transfer(objects,intent,path,callback)
+                return original_transfer(objects,intent,path,callback,*again)
             worker.ObjectStore._put_file=transfer
         else:
             original_commit=_BoundConnection.commit
