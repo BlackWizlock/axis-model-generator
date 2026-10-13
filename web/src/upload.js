@@ -62,6 +62,7 @@ export function sendPart(input) {
     signal?.addEventListener('abort',abort,{once:true}); xhr.send(blob);
   });
 }
+const BUSY_RETRIES = 2;
 function pause(signal) {
   return new Promise((resolve,reject) => {
     const abort = () => {clearTimeout(timer); reject(new DOMException('Отменено','AbortError'));};
@@ -93,12 +94,19 @@ export async function uploadFile(file,kind,csrf,onProgress,signal,limits={}) {
       signal?.throwIfAborted(); row = await api(`/api/uploads/${row.id}`,{signal});
     }
     validateUpload(row,source); onProgress({phase:'ack',done:row.acknowledgedBytes,total:file.size,part:row.nextPart,resumed:row.acknowledgedBytes > 0});
+    let busy = 0;
     while (row.state === 'receiving' && row.acknowledgedBytes < file.size) {
       signal?.throwIfAborted(); const offset = row.acknowledgedBytes;
       const blob = file.slice(offset,Math.min(offset + CHUNK_BYTES,file.size));
       const bytes = new Uint8Array(await blob.arrayBuffer()); signal?.throwIfAborted();
       const digest = new Sha256().update(bytes).digestHex();
-      row = validateUpload(await sendPart({blob,id:row.id,part:row.nextPart,offset,digest,csrf,onProgress,signal,total:file.size}),source);
+      try {
+        row = validateUpload(await sendPart({blob,id:row.id,part:row.nextPart,offset,digest,csrf,onProgress,signal,total:file.size}),source); busy = 0;
+      } catch (error) {
+        // Хранилище не подтвердило часть: сервер просит повторить, продолжаем с подтверждённого места.
+        if (error?.status !== 503 || busy >= BUSY_RETRIES) throw error;
+        busy++; await pause(signal); row = validateUpload(await api(`/api/uploads/${row.id}`,{signal}),source); continue;
+      }
       onProgress({phase:'ack',done:row.acknowledgedBytes,total:file.size,part:row.nextPart});
     }
     if (row.state === 'receiving') row = validateUpload(await api(`/api/uploads/${row.id}/complete`,{method:'POST',csrf,signal}),source);

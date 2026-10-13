@@ -18,7 +18,7 @@ const safeError=error=>error instanceof ApiError?error.message:error?.name==='Ab
 function element(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);if(className)node.className=className;return node;}
 function action(label,callback){const button=element('button',label,'button quiet');button.type='button';button.addEventListener('click',async()=>{button.disabled=true;try{await callback();}catch(error){message('jobs-message',safeError(error),true);}finally{button.disabled=false;}});return button;}
 // Сцена участка читает те же приватные данные просмотра, что и одиночный просмотр задания.
-const sitePanel=setupScene({byId,element,mount:mountScene,storage:browserStorage(),hasPreview:job=>jobArtifacts(job).some(item=>item.kind==='preview'),
+const sitePanel=setupScene({byId,element,focused:()=>document.activeElement,mount:mountScene,storage:browserStorage(),hasPreview:job=>jobArtifacts(job).some(item=>item.kind==='preview'),
  loadPreview:async job=>{const user=state.user,document=validatePreview(await api(artifactPath(job.id,jobArtifacts(job).find(item=>item.kind==='preview').id),{maxBytes:16*1024*1024}));if(user!==state.user||document.provenance!==(job.inputKind==='dwg'?'site_plan':'reduced_model'))throw new ApiError('invalid_preview');return document;}});
 function resetPreview(){state.viewer?.dispose();state.viewer=null;byId('viewer-materials').textContent='Нейтральные материалы';byId('thumbnail').hidden=true;byId('thumbnail').removeAttribute('src');byId('reset-view').disabled=true;byId('report-panel').hidden=true;byId('report-download').removeAttribute('href');byId('model-download').hidden=true;byId('model-download').removeAttribute('href');}
 function setUser(user){
@@ -47,7 +47,7 @@ function setInputFormats(rows){
 }
 // Что это за файл для сцены участка: сказано до загрузки.
 const SCENE_ROLE={dwg:'Это генплан: после загрузки он встанет в сцену ниже.',fbx:'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.','zip-fbx':'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.'};
-const SCENE_PLACED={plan:'Файл принят. Это генплан: он добавлен в сцену ниже.',building:'Файл принят. Это сооружение: задайте точку вставки в сцене ниже.',full:'Файл принят. В сцене уже 12 сооружений: уберите лишнее и выберите этот файл вручную.'};
+const SCENE_PLACED={plan:'Файл принят. Это генплан: он добавлен в сцену ниже.',replaced:'Файл принят. Это генплан: он заменил прежний чертёж в сцене ниже.',building:'Файл принят. Это сооружение: задайте точку вставки в сцене ниже.',full:'Файл принят. В сцене уже 12 сооружений: уберите лишнее и выберите этот файл вручную.'};
 function chosenFileChanged(){if(checkChosenFile())message('upload-message',byId('input-file').files[0]?SCENE_ROLE[byId('input-kind').value]||'':'');}
 function fileChosen(){const file=byId('input-file').files[0],select=byId('input-kind');if(file)select.value=kindForFile(file,select.value,state.inputFormats);chosenFileChanged();}
 byId('input-kind').addEventListener('change',chosenFileChanged);
