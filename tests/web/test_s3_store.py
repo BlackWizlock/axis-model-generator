@@ -34,6 +34,159 @@ class S3ContractTests(unittest.TestCase):
                 store.client=SimpleNamespace(head_object=lambda **kw:{'Metadata':metadata,'ContentLength':1})
                 with self.assertRaises(ApiError):store.head(intent)
 
+    def _retry_store(self,calls,failures,stored=None):
+        """A store over a scripted client: `failures` maps an operation to the errors it raises first."""
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        from botocore.exceptions import ClientError
+        store=object.__new__(ObjectStore); store.settings=SimpleNamespace(bucket='model-generator-test')
+        @contextmanager
+        def operation(deadline): yield
+        store.transport=SimpleNamespace(operation=operation)
+        state={'object':stored}
+        def step(name,result):
+            def call(**kw):
+                calls.append(name)
+                if failures.get(name): raise failures[name].pop(0)
+                return result(kw) if callable(result) else result
+            return call
+        def head(kw):
+            if state['object'] is None: raise ClientError({'ResponseMetadata':{'HTTPStatusCode':404},'Error':{'Code':'404'}},'HeadObject')
+            return {'Metadata':{'sha256':state['object'][1]},'ContentLength':state['object'][0]}
+        def complete(kw):
+            import hashlib
+            state['object']=(3,hashlib.sha256(b'abc').hexdigest()); return {}
+        store.client=SimpleNamespace(create_multipart_upload=step('create',{'UploadId':'mp'}),upload_part=step('part',{'ETag':'"e"'}),
+            complete_multipart_upload=step('complete',complete),head_object=step('head',head),
+            list_multipart_uploads=step('list',{'Uploads':[]}),abort_multipart_upload=step('abort',{}))
+        return store,state
+
+    def _retry_case(self,failures,stored=None,deadline=None,persist=None):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from model_generator.web import s3_store
+        calls=[]; store,state=self._retry_store(calls,failures,stored)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(s3_store.time,'sleep',lambda pause:calls.append(('pause',pause))):
+            path=Path(tmp)/'report.json'; path.write_bytes(b'abc')
+            intent=ObjectIntent('1'*32,'2'*32,'3'*32,'owners/'+('1'*32)+'/jobs/'+('2'*32)+'/'+('3'*32)+'/report.json','writing',None,3,deadline)
+            persisted=[]
+            try: return store.put_file(intent,path,persist or persisted.append),calls,persisted
+            except Exception as error: return error,calls,persisted
+
+    def test_one_refusal_of_the_storage_is_tried_again_and_the_half_made_upload_is_swept(self):
+        import hashlib
+        from botocore.exceptions import ClientError,ConnectTimeoutError
+        slow=ClientError({'ResponseMetadata':{'HTTPStatusCode':503},'Error':{'Code':'SlowDown'}},'UploadPart')
+        for name,first in (('create',ConnectTimeoutError(endpoint_url='x')),('part',slow),('complete',ConnectionResetError())):
+            with self.subTest(refused=name):
+                result,calls,persisted=self._retry_case({name:[first]})
+                self.assertEqual((result.bytes,result.sha256),(3,hashlib.sha256(b'abc').hexdigest()))
+                self.assertEqual(calls.count(('pause',.5)),1); self.assertEqual(calls.count('create'),2)
+                # The second try first looks for a finished object, then sweeps uploads of this key.
+                after=calls[calls.index(('pause',.5))+1:]
+                self.assertEqual(after[:3],['head','list','list'])
+                self.assertEqual(calls.count('complete'),2 if name=='complete' else 1)
+
+    def test_a_write_whose_answer_was_lost_is_found_and_not_written_twice(self):
+        import hashlib
+        from botocore.exceptions import ReadTimeoutError
+        calls=[]
+        result,calls,persisted=self._retry_case({'head':[ReadTimeoutError(endpoint_url='x')]})
+        # Complete went through, the verifying HEAD timed out: the retry finds the object and stops.
+        self.assertEqual(result.sha256,hashlib.sha256(b'abc').hexdigest())
+        self.assertEqual((calls.count('create'),calls.count('complete'),calls.count('abort')),(1,1,0))
+
+    def test_refusals_that_cannot_pass_are_not_tried_again(self):
+        from botocore.exceptions import ClientError,ConnectTimeoutError
+        from model_generator.web.security import ApiError
+        import time
+        taken=ClientError({'ResponseMetadata':{'HTTPStatusCode':412},'Error':{'Code':'PreconditionFailed'}},'CompleteMultipartUpload')
+        result,calls,_=self._retry_case({'complete':[taken]})
+        self.assertIsInstance(result,ApiError); self.assertEqual(result.cause,'ClientError.412.PreconditionFailed')
+        self.assertNotIn(('pause',.5),calls)
+        # Another content under the same key is a refusal, not a finished write.
+        result,calls,_=self._retry_case({'create':[ConnectTimeoutError(endpoint_url='x')]},stored=(3,'f'*64))
+        self.assertIsInstance(result,ApiError); self.assertEqual(calls.count('create'),1)
+        # No time left: one try only.
+        result,calls,_=self._retry_case({'create':[ConnectTimeoutError(endpoint_url='x')]},deadline=time.monotonic()+.2)
+        self.assertIsInstance(result,ApiError); self.assertEqual(result.cause,'ConnectTimeoutError'); self.assertNotIn(('pause',.5),calls)
+        # The caller's fence failed, not the storage: no second try, and a stand-in with the old signature still fits.
+        def lost(upload): raise TimeoutError
+        result,calls,_=self._retry_case({},persist=lost)
+        self.assertIsInstance(result,ApiError); self.assertEqual((result.cause,calls.count('create')),('TimeoutError',1)); self.assertNotIn(('pause',.5),calls)
+        # Three tries at most.
+        result,calls,_=self._retry_case({'create':[ConnectTimeoutError(endpoint_url='x') for _ in range(3)]})
+        self.assertIsInstance(result,ApiError); self.assertEqual(calls.count('create'),3)
+        self.assertEqual([item for item in calls if isinstance(item,tuple)],[('pause',.5),('pause',1.5)])
+
+    def test_the_journal_keeps_the_class_of_a_storage_failure_and_never_its_text(self):
+        import json
+        from botocore.exceptions import ClientError
+        from model_generator.web.journal import safe_record
+        from model_generator.web.s3_store import _unavailable
+        from model_generator.web.security import ApiError
+        failure=_unavailable(ClientError({'ResponseMetadata':{'HTTPStatusCode':503},'Error':{'Code':'SlowDown','Message':'secret-bucket-name'}},'UploadPart'))
+        record=json.loads(safe_record('worker','worker','storage_unavailable','a'*32,failure))
+        self.assertEqual(record['cause'],'ClientError.503.SlowDown'); self.assertNotIn('secret',json.dumps(record))
+        odd=_unavailable(ClientError({'ResponseMetadata':{'HTTPStatusCode':500},'Error':{'Code':'bad code/..'}},'UploadPart'))
+        self.assertEqual(odd.cause,'ClientError.500')
+        forged=ApiError('storage_unavailable','x',503); forged.cause='a b\n{"x":1}'
+        self.assertNotIn('cause',json.loads(safe_record('worker','worker','storage_unavailable','a'*32,forged)))
+        self.assertNotIn('cause',json.loads(safe_record('worker','worker','storage_unavailable','a'*32,ApiError('storage_unavailable','x',503))))
+        # Only the store's own error may name a cause.
+        other=ValueError('x'); other.cause='a'*32
+        self.assertNotIn('cause',json.loads(safe_record('worker','worker','storage_unavailable','a'*32,other)))
+
+    def test_the_worker_reads_its_input_again_after_one_refusal(self):
+        import hashlib,tempfile
+        from contextlib import contextmanager
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from botocore.exceptions import ReadTimeoutError
+        from model_generator.web import worker
+        from model_generator.web.s3_store import ObjectDescriptor,_unavailable
+        from model_generator.web.security import ApiError
+        def objects(refusals):
+            opened=[]
+            @contextmanager
+            def open_stream(descriptor):
+                opened.append(1)
+                if len(opened)<=len(refusals): raise refusals[len(opened)-1]
+                import io
+                yield io.BytesIO(b'abc')
+            return SimpleNamespace(open_stream=open_stream),opened
+        descriptor=ObjectDescriptor('k',3,hashlib.sha256(b'abc').hexdigest(),'application/octet-stream')
+        late=lambda:_unavailable(ReadTimeoutError(endpoint_url='x'))
+        with tempfile.TemporaryDirectory() as tmp,patch.object(worker.time,'sleep',lambda pause:None):
+            path=Path(tmp)/'input.bin'
+            store,opened=objects([late()])
+            worker._verified_download(store,descriptor,path,16); self.assertEqual((path.read_bytes(),len(opened)),(b'abc',2))
+            store,opened=objects([late(),late(),late()])
+            with self.assertRaises(ApiError): worker._verified_download(store,descriptor,path,16)
+            self.assertEqual(len(opened),3)
+            store,opened=objects([ApiError('storage_unavailable','x',503)])
+            with self.assertRaises(ApiError): worker._verified_download(store,descriptor,path,16)
+            self.assertEqual(len(opened),1)
+            # A stream that breaks while being read is read again; a local disk that refuses the bytes is not.
+            import io
+            class Broken(io.BytesIO):
+                def read(self,size=-1): raise TimeoutError
+            def flaky(streams):
+                opened=[]
+                @contextmanager
+                def open_stream(descriptor):
+                    opened.append(1)
+                    try: yield streams[len(opened)-1]
+                    except OSError as error: raise _unavailable(error) from None
+                return SimpleNamespace(open_stream=open_stream),opened
+            store,opened=flaky([Broken(),io.BytesIO(b'abc')])
+            worker._verified_download(store,descriptor,path,16); self.assertEqual((path.read_bytes(),len(opened)),(b'abc',2))
+            store,opened=flaky([io.BytesIO(b'abcdef'),io.BytesIO(b'abcdef')])
+            with self.assertRaises(ApiError): worker._verified_download(store,ObjectDescriptor('k',4,'0'*64,'x'),path,4)
+            self.assertEqual(len(opened),1)
+
 
 import hashlib
 from pathlib import Path

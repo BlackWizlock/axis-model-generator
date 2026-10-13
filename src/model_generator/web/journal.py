@@ -23,6 +23,7 @@ QUEUE_RECORDS=128
 FALLBACK_RECORDS=64
 SAFE_ID=re.compile('[a-f0-9]{32}\\Z')
 SAFE_NAME=re.compile('[A-Za-z_][A-Za-z0-9_]{0,79}\\Z')
+SAFE_CAUSE=re.compile('[A-Za-z_][A-Za-z0-9_]{0,59}(?:\\.[A-Za-z0-9]{1,40}){0,2}\\Z')
 STAGES={'request','stream','startup','cleanup','finalize','reconcile','validation','preview','worker','progress'}
 EXCEPTIONS={'ApiError','RuntimeError','ValueError','OSError','TimeoutError','MemoryError','ConnectionError',
             'OperationalError','InterfaceError','DatabaseError','PermissionError','FileNotFoundError','ExceptionGroup','CancelledError','ClientDisconnect'}
@@ -43,6 +44,9 @@ def safe_record(component, stage, code, request_id, error=None, job_id=None, att
     if error is not None:
         name=type(error).__name__
         record['exceptionType']=name if name in EXCEPTIONS else 'Exception'
+        # The class of a storage failure, set by the store itself: a code identifier, never a message.
+        cause=getattr(error,'cause',None) if name=='ApiError' else None
+        if isinstance(cause,str) and SAFE_CAUSE.fullmatch(cause): record['cause']=cause
         frames=[]; frame=error.__traceback__
         # No exception messages, chain, source text, filenames, values or locals.
         for _ in range(32):

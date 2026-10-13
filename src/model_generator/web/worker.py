@@ -231,11 +231,25 @@ def _cancelled(db, job, settings):
 def _verified_download(objects, descriptor, path, max_bytes):
     if descriptor.bytes > max_bytes:
         raise ValueError('Input size changed')
-    with objects.open_stream(descriptor) as stream:
-        def chunks():
-            while chunk := stream.read(65536):
-                yield chunk
-        size, sha = atomic_write(path, chunks(), max_bytes)
+    # One refusal of the storage must not fail the job: the file is written anew on every try.
+    for pause in (.5, 1.5, None):
+        opened = refused = False
+        try:
+            with objects.open_stream(descriptor) as stream:
+                opened = True
+                def chunks():
+                    nonlocal refused
+                    while True:
+                        try: chunk = stream.read(65536)
+                        except Exception: refused = True; raise
+                        if not chunk: return
+                        yield chunk
+                size, sha = atomic_write(path, chunks(), max_bytes)
+            break
+        except ApiError as error:
+            # A failed write to the local disk is not a refusal of the storage: reading again cannot help it.
+            if pause is None or not getattr(error, 'transient', False) or (opened and not refused): raise
+            time.sleep(pause)
     if size != descriptor.bytes or sha != descriptor.sha256:
         path.unlink(missing_ok=True)
         raise ValueError('Input hash changed')

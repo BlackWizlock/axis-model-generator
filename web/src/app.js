@@ -159,7 +159,7 @@ byId('demo-button').addEventListener('click',async()=>{
  catch(error){if(epoch===state.selectionEpoch){byId('viewer').textContent='Демонстрация пока недоступна.';message('preview-message',safeError(error),true);}}finally{button.disabled=false;}
 });
 byId('reset-view').addEventListener('click',()=>state.viewer?.reset());
-window.addEventListener('pagehide',()=>{state.selectionEpoch++;state.limits.preserveOnAbort=true;state.poller?.stop();state.poller=null;state.upload?.abort();resetPreview();sitePanel.clear();});
+window.addEventListener('pagehide',()=>{state.selectionEpoch++;state.limits.preserveOnAbort=true;state.poller?.stop();state.poller=null;state.upload?.abort();resetPreview();sitePanel.clear(true);});
 window.addEventListener('pageshow',async event=>{
  if(!event.persisted)return;state.limits.preserveOnAbort=false;
  if(state.user){state.poller?.stop();state.poller=startPolling(refreshJobs);}

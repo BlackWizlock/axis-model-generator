@@ -1,4 +1,6 @@
-FROM node:26.10.0-bookworm-slim@sha256:3ffc19ea878019d9e9ae8971732ad4a03cda44f167107173174b60ed7c65bed3 AS frontend
+# The frontend stage emits static files only, so it runs on the builder's own
+# processor: an arm64 laptop builds the amd64 image without emulating npm.
+FROM --platform=$BUILDPLATFORM node:26.10.0-bookworm-slim@sha256:3ffc19ea878019d9e9ae8971732ad4a03cda44f167107173174b60ed7c65bed3 AS frontend
 WORKDIR /app
 COPY web/package.json web/package-lock.json ./web/
 RUN npm --prefix web ci
