@@ -105,7 +105,10 @@ export async function uploadFile(file,kind,csrf,onProgress,signal,limits={}) {
       } catch (error) {
         // Хранилище не подтвердило часть: сервер просит повторить, продолжаем с подтверждённого места.
         if (error?.status !== 503 || busy >= BUSY_RETRIES) throw error;
-        busy++; await pause(signal); row = validateUpload(await api(`/api/uploads/${row.id}`,{signal}),source); continue;
+        busy++; await pause(signal); row = validateUpload(await api(`/api/uploads/${row.id}`,{signal}),source);
+        // Загрузку за это время убрали: причина в отказе хранилища, а не в превышении ожидания.
+        if (!['receiving','finalizing','ready','failed'].includes(row.state)) throw error;
+        continue;
       }
       onProgress({phase:'ack',done:row.acknowledgedBytes,total:file.size,part:row.nextPart});
     }

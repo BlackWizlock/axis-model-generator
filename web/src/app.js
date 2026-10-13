@@ -48,7 +48,9 @@ function setInputFormats(rows){
 // Что это за файл для сцены участка: сказано до загрузки.
 const SCENE_ROLE={dwg:'Это генплан: после загрузки он встанет в сцену ниже.',fbx:'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.','zip-fbx':'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.'};
 const SCENE_PLACED={plan:'Файл принят. Это генплан: он добавлен в сцену ниже.',replaced:'Файл принят. Это генплан: он заменил прежний чертёж в сцене ниже.',building:'Файл принят. Это сооружение: задайте точку вставки в сцене ниже.',full:'Файл принят. В сцене уже 12 сооружений: уберите лишнее и выберите этот файл вручную.'};
-function chosenFileChanged(){if(checkChosenFile())message('upload-message',byId('input-file').files[0]?SCENE_ROLE[byId('input-kind').value]||'':'');}
+// Архив ZIP бывает двух видов, по имени их не различить: в сцену встаёт только архив с FBX.
+const sceneRole=kind=>SCENE_ROLE[kind]||(kind==='portable-package'&&state.inputFormats?.some(row=>row.upload&&row.id==='zip-fbx')?'Переносимый пакет в сцену участка не встаёт. Если в архиве модель FBX, выберите вид «ZIP с FBX».':'');
+function chosenFileChanged(){if(checkChosenFile())message('upload-message',byId('input-file').files[0]?sceneRole(byId('input-kind').value):'');}
 function fileChosen(){const file=byId('input-file').files[0],select=byId('input-kind');if(file)select.value=kindForFile(file,select.value,state.inputFormats);chosenFileChanged();}
 byId('input-kind').addEventListener('change',chosenFileChanged);
 byId('input-file').addEventListener('change',fileChosen);

@@ -6,7 +6,7 @@ const STOPPED=new Set(['failed','cancelled','interrupted','deleted']);
 // deps: byId, element, loadPreview(job), mount(container, parts, markers), storage, hasPreview(job).
 export function setupScene(deps){
   const {byId,element,loadPreview,mount,storage,hasPreview,focused}=deps;
-  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',readyUsed='',loaded=false;
+  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',stateSaid='',readyUsed='',loaded=false;
   // Файлы сцены, которые на этой странице ещё обрабатывались: их готовность собирает сцену.
   const pending=new Set(),seen=new Set();
   const previews=new Map();
@@ -23,12 +23,25 @@ export function setupScene(deps){
     if(STOPPED.has(job.state))return`${name}: обработка не завершена. Загрузите файл ещё раз.`;
     return job.state==='completed'?`${name}: просмотр для этого файла недоступен.`:`${name} принят и обрабатывается.${plan?'':' Точку вставки можно задать уже сейчас.'}`;
   }
+  // Состояния файлов сцены, которые ещё не готовы: строка под сценой, пока показывать нечего.
+  function sayStates(asked=true){
+    const states=[waiting(scene.plan,true)&&`Генплан: ${waiting(scene.plan,true)}`,...scene.buildings.map(building=>waiting(building.job))].filter(Boolean);
+    stateSaid=states.join(' ');
+    // Просьба выбрать файл уместна в ответ на кнопку; при опросе списка строка просто гаснет.
+    say(stateSaid||(asked?'Выберите генплан или сооружение из своих моделей. Сначала загрузите файлы в разделе выше.':''),asked&&!states.length);
+  }
+  const statesShown=()=>Boolean(stateSaid)&&byId('scene-message').textContent===stateSaid;
   function fill(select,rows,value,placeholder){
     const first=element('option',placeholder);first.value='';
     select.replaceChildren(first,...rows.map(job=>{const option=element('option',job.displayName||'Без имени');option.value=job.id;return option;}));
     select.value=rows.some(job=>job.id===value)?value:'';
   }
-  function changed(){save();if(shown)void show();}
+  // Сцену уже просили показать: выбор и числа сразу идут в неё, в том числе пока под сценой стоят состояния файлов.
+  function settle(asked){save();if(shown||asked)void show();}
+  // Слушатель события: аргументов не принимает, объект события сюда попасть не должен.
+  function changed(){settle(statesShown());}
+  // Перерисовка строк может погасить строку состояний: была ли она, запоминаем до перерисовки.
+  function redrawn(){const asked=statesShown();render();settle(asked);}
   function field(building,index,[name,label]){
     const box=element('div'),id=`scene-${index}-${name}`,caption=element('label',label),input=element('input');
     caption.setAttribute('for',id);input.id=id;input.type='text';input.setAttribute('inputmode','decimal');input.setAttribute('autocomplete','off');input.value=building[name];
@@ -41,9 +54,9 @@ export function setupScene(deps){
     fill(select,ready(kind=>BUILDING_KINDS.has(kind)),building.job,'Выберите модель FBX');
     select.addEventListener('change',()=>{building.job=select.value;changed();});choice.append(select);
     const swap=element('button','Поменять X и Y','button quiet compact');swap.type='button';
-    swap.addEventListener('click',()=>{[building.x,building.y]=[building.y,building.x];render();changed();});
+    swap.addEventListener('click',()=>{[building.x,building.y]=[building.y,building.x];redrawn();});
     const remove=element('button','Убрать','button quiet compact');remove.type='button';
-    remove.addEventListener('click',()=>{scene.buildings.splice(index,1);if(!scene.buildings.length)scene.buildings.push(emptyBuilding());render();changed();});
+    remove.addEventListener('click',()=>{scene.buildings.splice(index,1);if(!scene.buildings.length)scene.buildings.push(emptyBuilding());redrawn();});
     const title=element('div');title.append(caption,choice);head.append(title,swap,remove);
     const fields=element('div',undefined,'scene-fields');fields.append(...FIELDS.map(item=>field(building,index,item)));
     const state=waiting(building.job);
@@ -57,7 +70,7 @@ export function setupScene(deps){
     byId('scene-buildings').replaceChildren(...scene.buildings.map(row));
     byId('scene-add').disabled=scene.buildings.length>=MAX_BUILDINGS;
     // Поле, в которое пользователь вводит числа, остаётся под курсором после перерисовки строк.
-    if(caret){const node=byId(id);node.focus?.();try{node.setSelectionRange?.(...caret);}catch{ /* У списка выбора каретки нет. */ }}
+    if(caret){const node=byId(id);node?.focus?.({preventScroll:true});try{node?.setSelectionRange?.(...caret);}catch{ /* У списка выбора каретки нет. */ }}
     const state=waiting(scene.plan,true),text=state?`Генплан: ${state}`:'',said=byId('scene-message').textContent;
     if(text&&(force||!said||said===planSaid))say(text);else if(!text&&planSaid&&said===planSaid)say('');
     planSaid=text;
@@ -75,10 +88,7 @@ export function setupScene(deps){
     const turn=++epoch,planJob=find(scene.plan);
     const chosen=scene.buildings.map((building,index)=>({index,job:find(building.job),at:placement(building)})).filter(item=>item.job);
     readyUsed=usedReady();
-    if(!planJob&&!chosen.length){
-      const states=[waiting(scene.plan,true)&&`Генплан: ${waiting(scene.plan,true)}`,...scene.buildings.map(building=>waiting(building.job))].filter(Boolean);
-      say(states.join(' ')||'Выберите генплан или сооружение из своих моделей. Сначала загрузите файлы в разделе выше.',!states.length);return;
-    }
+    if(!planJob&&!chosen.length){sayStates();return;}
     say('Собираем сцену…');
     try{
       const [plan,...models]=await Promise.all([planJob?preview(planJob):null,...chosen.map(item=>preview(item.job))]);
@@ -95,7 +105,7 @@ export function setupScene(deps){
     }catch{if(turn===epoch)say('Не удалось открыть данные просмотра. Проверьте, что модели обработаны, и повторите.',true);}
   }
   function clear(){epoch++;viewer?.dispose();viewer=null;shown=false;previews.clear();byId('scene-reset').disabled=true;}
-  byId('scene-plan').addEventListener('change',()=>{scene.plan=byId('scene-plan').value;render();changed();});
+  byId('scene-plan').addEventListener('change',()=>{scene.plan=byId('scene-plan').value;redrawn();});
   byId('scene-add').addEventListener('click',()=>{if(scene.buildings.length<MAX_BUILDINGS){scene.buildings.push(emptyBuilding());save();render();}});
   byId('scene-show').addEventListener('click',()=>{void show();});
   byId('scene-reset').addEventListener('click',()=>viewer?.reset());
@@ -110,7 +120,8 @@ export function setupScene(deps){
       let arrived=false;loaded=true;
       // Задание, которое было в списке и пропало, удалено: его строка больше не ждёт.
       const present=new Set(jobs.map(job=>job.id));
-      for(const id of pending)if(seen.has(id)&&!present.has(id))pending.delete(id);
+      // Файл, вытесненный из сцены, её больше не собирает.
+      for(const id of pending)if(!used.has(id)||(seen.has(id)&&!present.has(id)))pending.delete(id);
       for(const job of jobs)if(used.has(job.id)){
         seen.add(job.id);
         if(find(job.id))arrived=pending.delete(job.id)||arrived;
@@ -118,8 +129,10 @@ export function setupScene(deps){
         else pending.add(job.id);
       }
       const fresh=arrived||(shown&&usedReady()!==readyUsed);
+      // Строка состояний, сказанная по кнопке, идёт за заданиями: отказ обработки в ней виден.
+      const stale=key!==listed&&statesShown();
       if(key!==listed){listed=key;render(!fresh);}
-      if(fresh)void show();
+      if(fresh)void show();else if(stale)sayStates(false);
     },
     // Только что загруженный файл встаёт в сцену по своему виду: чертёж генпланом, модель сооружением.
     accept(id,kind){

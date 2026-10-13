@@ -160,3 +160,15 @@ test('FBX view takes its pictures from the model file and falls back to the neut
  // Пакет показывает свою проверенную геометрию и файл модели не запрашивает.
  readable=true;kind='portable-package';asked=[];await open();assert.equal(mounted,null);assert.deepEqual(asked,[]);assert.match(app.get('preview-message').textContent,/геометрия вашего пакета/);
 });
+test('an accepted file is handed to the scene by its kind and the answer is said',async()=>{
+ const rows=[...formats.slice(0,2),{id:'fbx',extensions:['.fbx'],upload:true,diagnostics:true,preview:false,generation:false,reason:null}];
+ for(const [name,answer,said] of [['House.fbx','building',/Это сооружение: задайте точку вставки/],['House.fbx','full',/В сцене уже 12 сооружений/],['pack.zip','',/Задание добавлено в вашу очередь/]]){
+  const handed=[],app=await appHarness({api:async path=>path==='/api/config'?{sourceLink:'https://github.com/BlackWizlock/axis-model-generator',inputFormats:rows}:{csrfToken:'token'},
+   setupScene:()=>({jobs(){},clear(){},accept:(id,kind)=>{handed.push([id,kind]);return answer;}})});
+  const file=app.get('input-file');file.files=[{name,size:10}];file.events.change();
+  // Архив без явного вида остаётся пакетом: сайт говорит, как поставить его в сцену.
+  if(name==='pack.zip')assert.match(app.get('upload-message').textContent,/выберите вид «ZIP с FBX»/);
+  await app.get('upload-form').events.submit({preventDefault(){}});
+  assert.deepEqual(handed,[['a'.repeat(32),name==='pack.zip'?'portable-package':'fbx']]);assert.match(app.get('upload-message').textContent,said);
+ }
+});

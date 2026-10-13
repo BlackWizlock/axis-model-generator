@@ -166,3 +166,50 @@ test('rows are reused with care and the shown scene is not rebuilt without a rea
  const manual=panel();manual.control.jobs(jobs);manual.byId('scene-plan').value=P;manual.byId('scene-plan').events.change();await manual.control.show();
  manual.control.jobs([...jobs]);manual.control.jobs(jobs.map(job=>({...job})));await new Promise(resolve=>setImmediate(resolve));assert.equal(manual.mounted.length,1);
 });
+test('removing the row that holds the cursor does not break the panel',()=>{
+ const nodes={},stored=new Map();let active=null;
+ const byId=id=>id.startsWith('scene-1-')&&active?.gone?null:(nodes[id]||=Object.assign({children:[],events:{},value:'',textContent:'',classList:{toggle(){}},append(...n){this.children.push(...n);},replaceChildren(...n){this.children=n;},setAttribute(){},addEventListener(k,fn){this.events[k]=fn;}}));
+ const element=(tag,text)=>({tagName:tag,textContent:text??'',children:[],events:{},value:'',classList:{toggle(){}},append(...n){this.children.push(...n);},replaceChildren(...n){this.children=n;},setAttribute(){},addEventListener(k,fn){this.events[k]=fn;}});
+ const control=setupScene({byId,element,hasPreview:()=>true,storage:{getItem:key=>stored.get(key)??null,setItem:(key,value)=>stored.set(key,value)},loadPreview:async()=>house(),mount:()=>({reset(){},dispose(){}}),focused:()=>active});
+ byId('scene-add').events.click();assert.equal(control.scene().buildings.length,2);
+ active={id:'scene-1-x',selectionStart:0,selectionEnd:0,gone:true};
+ const remove=byId('scene-buildings').children[1].children[0].children.at(-1);remove.events.click();
+ assert.equal(control.scene().buildings.length,1);assert.equal(readScene(stored.get(SCENE_KEY)).buildings.length,1);
+});
+test('the line under the scene follows its files and a displaced drawing rebuilds nothing',async()=>{
+ const R='r'.repeat(32),P='p'.repeat(32),tick=()=>new Promise(resolve=>setImmediate(resolve));
+ // Сцена запрошена кнопкой, пока сооружение обрабатывается: отказ обработки доходит до строки под сценой.
+ const app=panel();app.control.jobs(jobs);app.control.accept(R,'fbx');await app.byId('scene-show').events.click();
+ assert.match(app.message(),/later\.fbx принят и обрабатывается/);
+ app.control.jobs(jobs.map(job=>job.id===R?{...job,state:'failed'}:job));
+ assert.match(app.message(),/later\.fbx: обработка не завершена/);assert.equal(app.mounted.length,0);
+ // Задание удалено: строка под сценой гаснет, а не просит выбрать файл.
+ const lost=panel();lost.control.jobs(jobs);lost.control.accept(R,'fbx');await lost.byId('scene-show').events.click();lost.control.jobs(jobs);
+ lost.control.jobs(jobs.filter(job=>job.id!==R));assert.equal(lost.message(),'');
+ // После кнопки ручной выбор готовой модели сразу идёт в сцену.
+ const hand=panel();hand.control.jobs(jobs);hand.control.accept(R,'fbx');await hand.byId('scene-show').events.click();
+ for(const [name,value] of [['x','1'],['y','2'],['z','3']]){const node=hand.input(`scene-0-${name}`);node.value=value;node.events.input();}
+ hand.input('scene-0-job').value='h'.repeat(32);hand.input('scene-0-job').events.change();await tick();
+ assert.equal(hand.mounted.length,1);assert.match(hand.message(),/В сцене: сооружений 1/);
+ // То же для генплана, когда под сценой стоит строка об одном ожидающем чертеже.
+ const late={id:'d'.repeat(32),state:'running',inputKind:'dwg',displayName:'site.dwg'},pick=panel();
+ pick.control.jobs([...jobs,late]);pick.control.accept(late.id,'dwg');pick.control.jobs([...jobs,late]);await pick.byId('scene-show').events.click();
+ assert.equal(pick.message(),'Генплан: site.dwg принят и обрабатывается.');
+ pick.byId('scene-plan').value=P;pick.byId('scene-plan').events.change();await tick();
+ assert.equal(pick.mounted.length,1);assert.match(pick.message(),/В сцене: генплан/);
+ // Кнопку не нажимали: число в поле сцену не показывает и чужое сообщение не трогает. Браузер передаёт слушателю событие.
+ const calm=panel();calm.control.jobs(jobs);calm.input('scene-0-job').value='h'.repeat(32);calm.input('scene-0-job').events.change({type:'change'});
+ calm.byId('scene-message').textContent='своё';
+ for(const [name,value] of [['x','1'],['y','2'],['z','3']]){const node=calm.input(`scene-0-${name}`);node.value=value;node.events.input({type:'input'});node.events.change({type:'change'});}
+ calm.byId('scene-plan').value=P;calm.byId('scene-plan').events.change({type:'change'});await tick();
+ assert.equal(calm.mounted.length,0);assert.equal(calm.message(),'своё');
+ // Чужое сообщение под сценой опрос списка не трогает.
+ const quiet=panel();quiet.control.jobs(jobs);quiet.byId('scene-message').textContent='своё';quiet.control.jobs(jobs.slice(0,2));assert.equal(quiet.message(),'своё');
+ // Чертёж вытеснен из сцены во время обработки и позже выбран вручную: сцена собирается один раз.
+ const drawing={id:'d'.repeat(32),state:'running',inputKind:'dwg',displayName:'first.dwg'},swap=panel();
+ swap.control.jobs([...jobs,drawing]);assert.equal(swap.control.accept(drawing.id,'dwg'),'plan');assert.equal(swap.control.accept(P,'dwg'),'replaced');
+ swap.control.jobs([...jobs,drawing]);await tick();assert.equal(swap.mounted.length,1);
+ const done=[...jobs,{...drawing,state:'completed'}];swap.control.jobs(done);await tick();assert.equal(swap.mounted.length,1);
+ swap.byId('scene-plan').value=drawing.id;swap.byId('scene-plan').events.change();await tick();assert.equal(swap.mounted.length,2);
+ swap.control.jobs(done.map(job=>({...job})));await tick();assert.equal(swap.mounted.length,2);
+});
