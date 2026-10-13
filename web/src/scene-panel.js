@@ -1,17 +1,28 @@
 import {SCENE_KEY,MAX_BUILDINGS,emptyBuilding,readScene,writeScene,placement,placePlan,placeBuilding,placementNote} from './scene.js';
 const FIELDS=[['x','X в чертеже, м'],['y','Y в чертеже, м'],['z','Отметка нуля, м'],['angle','Поворот, градусы'],['ax','Точка модели X, м'],['ay','Точка модели Y, м'],['az','Точка модели Z, м']];
 const BUILDING_KINDS=new Set(['fbx','zip-fbx']);
-// Панель сцены участка: выбор генплана и сооружений из своих заданий, точки вставки, совмещённый вид.
+const STOPPED=new Set(['failed','cancelled','interrupted','deleted']);
+// Панель сцены участка: загруженный файл сам встаёт в сцену, сооружению задаётся точка вставки, вид совмещённый.
 // deps: byId, element, loadPreview(job), mount(container, parts, markers), storage, hasPreview(job).
 export function setupScene(deps){
   const {byId,element,loadPreview,mount,storage,hasPreview}=deps;
-  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false;
+  const scene=readScene(read());let jobs=[],listed='',viewer=null,epoch=0,shown=false,planSaid='',readyUsed='';
+  // Файлы сцены, которые на этой странице ещё обрабатывались: их готовность собирает сцену.
+  const pending=new Set();
   const previews=new Map();
   function read(){try{return storage?.getItem(SCENE_KEY)??'';}catch{return'';}}
   function save(){try{storage?.setItem(SCENE_KEY,writeScene(scene));}catch{ /* Сцена тогда живёт до закрытия страницы. */ }}
   function say(text,error=false){const node=byId('scene-message');node.textContent=text;node.classList.toggle('error',error);}
   const ready=kinds=>jobs.filter(job=>job.state==='completed'&&kinds(job.inputKind)&&hasPreview(job));
   const find=id=>jobs.find(job=>job.id===id&&job.state==='completed'&&hasPreview(job));
+  // Файл из сцены, которого ещё нет среди готовых: что с ним сейчас.
+  function waiting(id,plan=false){
+    const job=id&&!find(id)?jobs.find(item=>item.id===id):null;
+    if(!job)return'';
+    const name=job.displayName||'Файл';
+    if(STOPPED.has(job.state))return`${name}: обработка не завершена. Загрузите файл ещё раз.`;
+    return job.state==='completed'?`${name}: просмотр для этого файла недоступен.`:`${name} принят и обрабатывается.${plan?'':' Точку вставки можно задать уже сейчас.'}`;
+  }
   function fill(select,rows,value,placeholder){
     const first=element('option',placeholder);first.value='';
     select.replaceChildren(first,...rows.map(job=>{const option=element('option',job.displayName||'Без имени');option.value=job.id;return option;}));
@@ -35,12 +46,16 @@ export function setupScene(deps){
     remove.addEventListener('click',()=>{scene.buildings.splice(index,1);if(!scene.buildings.length)scene.buildings.push(emptyBuilding());render();changed();});
     const title=element('div');title.append(caption,choice);head.append(title,swap,remove);
     const fields=element('div',undefined,'scene-fields');fields.append(...FIELDS.map(item=>field(building,index,item)));
-    node.append(head,fields);return node;
+    const state=waiting(building.job);
+    node.append(head,fields,...(state?[element('p',state,'small')]:[]));return node;
   }
   function render(){
     fill(byId('scene-plan'),ready(kind=>kind==='dwg'),scene.plan,'Без генплана');
     byId('scene-buildings').replaceChildren(...scene.buildings.map(row));
     byId('scene-add').disabled=scene.buildings.length>=MAX_BUILDINGS;
+    const state=waiting(scene.plan,true),text=state?`Генплан: ${state}`:'';
+    if(text)say(text);else if(planSaid&&byId('scene-message').textContent===planSaid)say('');
+    planSaid=text;
   }
   async function preview(job){
     if(!previews.has(job.id)){if(previews.size>=MAX_BUILDINGS+1)previews.clear();previews.set(job.id,loadPreview(job));}
@@ -60,7 +75,7 @@ export function setupScene(deps){
       const [plan,...models]=await Promise.all([planJob?preview(planJob):null,...chosen.map(item=>preview(item.job))]);
       if(turn!==epoch)return;
       const placed=chosen.map((item,order)=>({...item,model:models[order]})),set=placed.filter(item=>item.at);
-      const notes=placed.filter(item=>!item.at).map(item=>`Сооружение ${item.index+1}: укажите числами X, Y и отметку нуля.`);
+      const planState=waiting(scene.plan,true),notes=[...(planState?[`Генплан: ${planState}`]:[]),...placed.filter(item=>!item.at).map(item=>`Сооружение ${item.index+1}: укажите числами X, Y и отметку нуля.`)];
       if(!plan&&!set.length){say(notes.join(' '),true);return;}
       const base=plan?plan.origin:[set[0].at.x,set[0].at.y,set[0].at.z],parts=[];
       if(plan)parts.push({plan:true,positions:placePlan(plan,base),indices:plan.indices});
@@ -80,8 +95,32 @@ export function setupScene(deps){
     // Список заданий меняется при опросе; поля перерисовываются только когда изменился сам выбор.
     jobs(list){
       jobs=Array.isArray(list)?list:[];
-      const key=JSON.stringify(jobs.filter(job=>job.state==='completed'&&hasPreview(job)).map(job=>[job.id,job.inputKind,job.displayName]));
+      const used=new Set([scene.plan,...scene.buildings.map(building=>building.job)]);
+      const key=JSON.stringify([jobs.filter(job=>job.state==='completed'&&hasPreview(job)).map(job=>[job.id,job.inputKind,job.displayName]),jobs.filter(job=>used.has(job.id)).map(job=>[job.id,job.state])]);
+      // Загруженный файл показывается в сцене сам, как только обработан, в том числе после перезагрузки страницы.
+      let arrived=false;
+      for(const job of jobs)if(used.has(job.id)){
+        if(find(job.id))arrived=pending.delete(job.id)||arrived;
+        else if(STOPPED.has(job.state)||job.state==='completed')pending.delete(job.id);
+        else pending.add(job.id);
+      }
+      const now=[...used].filter(id=>id&&find(id)).join();
+      const fresh=arrived||(shown&&now!==readyUsed);readyUsed=now;
       if(key!==listed){listed=key;render();}
+      if(fresh)void show();
+    },
+    // Только что загруженный файл встаёт в сцену по своему виду: чертёж генпланом, модель сооружением.
+    accept(id,kind){
+      if(kind==='dwg')scene.plan=id;
+      else if(BUILDING_KINDS.has(kind)){
+        if(!scene.buildings.some(building=>building.job===id)){
+          const free=scene.buildings.find(building=>!building.job||(!pending.has(building.job)&&!jobs.some(job=>job.id===building.job)))||(scene.buildings.length<MAX_BUILDINGS?scene.buildings[scene.buildings.push(emptyBuilding())-1]:null);
+          if(!free)return'full';
+          free.job=id;
+        }
+      }else return'';
+      pending.add(id);listed='';save();render();
+      return kind==='dwg'?'plan':'building';
     },
     clear,show,
     scene:()=>scene,

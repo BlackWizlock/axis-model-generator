@@ -45,7 +45,10 @@ function setInputFormats(rows){
  byId('input-format-reasons').replaceChildren();
  checkChosenFile();
 }
-function chosenFileChanged(){if(checkChosenFile())message('upload-message','');}
+// Что это за файл для сцены участка: сказано до загрузки.
+const SCENE_ROLE={dwg:'Это генплан: после загрузки он встанет в сцену ниже.',fbx:'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.','zip-fbx':'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.'};
+const SCENE_PLACED={plan:'Файл принят. Это генплан: он добавлен в сцену ниже.',building:'Файл принят. Это сооружение: задайте точку вставки в сцене ниже.',full:'Файл принят. В сцене уже 12 сооружений: уберите лишнее и выберите этот файл вручную.'};
+function chosenFileChanged(){if(checkChosenFile())message('upload-message',byId('input-file').files[0]?SCENE_ROLE[byId('input-kind').value]||'':'');}
 function fileChosen(){const file=byId('input-file').files[0],select=byId('input-kind');if(file)select.value=kindForFile(file,select.value,state.inputFormats);chosenFileChanged();}
 byId('input-kind').addEventListener('change',chosenFileChanged);
 byId('input-file').addEventListener('change',fileChosen);
@@ -62,10 +65,10 @@ byId('upload-form').addEventListener('submit',async event=>{
  trackGoal('upload_started');
  let uploaded,created=false;state.uploadReply=null;state.uploadPhase='preparation';const started=Date.now();const ageTimer=setInterval(()=>{if(!document.hidden)updateUploadHeartbeat(started);},1000);
  try{
-  const input={region:byId('region').value,procedure:'diagnostic',submissionDate:byId('submission-date').value};
-  uploaded=await uploadFile(file,byId('input-kind').value,state.user.csrfToken,progress=>{state.uploadPhase=progress.phase;if(['ack','verify','ready'].includes(progress.phase))state.uploadReply=Date.now();const percent=Math.floor(progress.done/progress.total*100);byId('upload-progress').value=percent;const labels={hash:`Подготовка и контрольная сумма: ${percent}%`,transport:`Передача: ${percent}%, подтверждено сервером ${progress.acknowledged} байт`,ack:`Подтверждено ${progress.done} из ${progress.total} байт${progress.resumed?' · продолжение загрузки':''}`,verify:'Сервер проверяет целостность файла. Проверка модели ещё не началась.',ready:'Файл принят. Создаём задание.'};message('upload-message',labels[progress.phase]);byId('checks-summary').textContent=labels[progress.phase]||uploadStageText(progress.phase);},controller.signal,state.limits);
+  const input={region:byId('region').value,procedure:'diagnostic',submissionDate:byId('submission-date').value},kind=byId('input-kind').value;
+  uploaded=await uploadFile(file,kind,state.user.csrfToken,progress=>{state.uploadPhase=progress.phase;if(['ack','verify','ready'].includes(progress.phase))state.uploadReply=Date.now();const percent=Math.floor(progress.done/progress.total*100);byId('upload-progress').value=percent;const labels={hash:`Подготовка и контрольная сумма: ${percent}%`,transport:`Передача: ${percent}%, подтверждено сервером ${progress.acknowledged} байт`,ack:`Подтверждено ${progress.done} из ${progress.total} байт${progress.resumed?' · продолжение загрузки':''}`,verify:'Сервер проверяет целостность файла. Проверка модели ещё не началась.',ready:'Файл принят. Создаём задание.'};message('upload-message',labels[progress.phase]);byId('checks-summary').textContent=labels[progress.phase]||uploadStageText(progress.phase);},controller.signal,state.limits);
   controller.signal.throwIfAborted();trackGoal('upload_completed');byId('upload-cancel').hidden=true;state.uploadPhase='queue';byId('checks-summary').textContent='Файл принят. Создаём задание и ожидаем начала проверок.';message('upload-message','Файл принят. Создаём задание. После появления в очереди его можно отменить.');const job=await createJob({uploadId:uploaded.id,...input});created=true;watchDiagnostic(job.id);trackGoal('diagnosis_started');
-  message('upload-message','Файл принят. Задание добавлено в вашу очередь.');byId('input-file').value='';await state.poller?.refresh();await openJob(job.id,{scroll:false});
+  message('upload-message',SCENE_PLACED[sitePanel.accept(job.id,kind)]||'Файл принят. Задание добавлено в вашу очередь.');byId('input-file').value='';await state.poller?.refresh();await openJob(job.id,{scroll:false});
  }catch(error){
   if(uploaded&&!created&&error.name==='AbortError'){try{await api(`/api/uploads/${uploaded.id}`,{method:'DELETE'});}catch{message('upload-message','Очистка загрузки пока не подтверждена. Обновите страницу перед повторной загрузкой.',true);return;}}
   byId('checks-summary').textContent=safeError(error);message('upload-message',`${safeError(error)} ${error?.name==='AbortError'?'':'Повторно выберите тот же файл и нажмите загрузить для продолжения с подтверждённой части.'}`,error?.name!=='AbortError');

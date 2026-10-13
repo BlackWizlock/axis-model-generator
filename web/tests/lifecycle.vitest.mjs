@@ -88,7 +88,7 @@ test('a chosen file selects the kind that accepts it and keeps an explicit fitti
  const kind=app.get('input-kind'),file=app.get('input-file');
  assert.equal(kind.value,'portable-package');
  file.files=[{name:'House.FBX',size:10}];file.events.change();
- assert.equal(kind.value,'fbx');assert.equal(app.get('upload-submit').disabled,false);assert.equal(app.get('upload-message').textContent,'');
+ assert.equal(kind.value,'fbx');assert.equal(app.get('upload-submit').disabled,false);assert.equal(app.get('upload-message').textContent,'Это сооружение: после загрузки задайте ему точку вставки в сцене ниже.');
  file.files=[{name:'site.zip',size:10}];file.events.change();assert.equal(kind.value,'zip-fbx');
  kind.value='portable-package';kind.events.change();file.files=[{name:'other.zip',size:10}];file.events.change();
  assert.equal(kind.value,'portable-package');
