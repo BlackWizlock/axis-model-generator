@@ -8,8 +8,10 @@ from web.helpers import TestClient,make_test_app,settings_for,reset_database
 ROOT=Path(__file__).resolve().parents[2]
 
 class Html(HTMLParser):
-    def __init__(self): super().__init__(); self.tags=[]; self.text=[]
-    def handle_starttag(self,tag,attrs): self.tags.append((tag,dict(attrs)))
+    def __init__(self): super().__init__(); self.tags=[]; self.text=[]; self.scripts=[]
+    def handle_starttag(self,tag,attrs):
+        self.tags.append((tag,dict(attrs)))
+        if tag=='script': self.scripts.append((dict(attrs),self.get_starttag_text()))
     def handle_data(self,data): self.text.append(data)
 
 class StaticTests(unittest.TestCase):
@@ -29,9 +31,24 @@ class StaticTests(unittest.TestCase):
                     self.assertTrue(any(attr.get('href')==target and attr.get('target')=='_blank' and 'noopener' in attr.get('rel','') for attr in links))
                 self.assertTrue(any(attr.get('id')=='menu-toggle' and attr.get('aria-expanded')=='false' and attr.get('aria-controls')=='site-menu' for _,attr in html.tags))
                 self.assertFalse(any(key.startswith('on') for _,attr in html.tags for key in attr))
-                self.assertFalse(any(tag=='style' or (tag=='script' and not attr.get('src','').startswith('/src/')) for tag,attr in html.tags))
+                # Блок данных schema.org не исполняется браузером и CSP не затрагивает; любой другой встроенный скрипт запрещён.
+                self.assertFalse(any(tag=='style' or (tag=='script' and not attr.get('src','').startswith('/src/') and attr.get('type')!='application/ld+json') for tag,attr in html.tags))
+                # Повтор атрибута type парсер схлопывает в последний, браузер берёт первый: блок данных допускается только в точной записи.
+                for attr,raw in html.scripts:
+                    if not attr.get('src','').startswith('/src/'): self.assertEqual(raw,'<script type="application/ld+json">')
                 if name!='index': self.assertTrue(any(tag=='meta' and attr.get('name')=='robots' and attr.get('content')=='noindex, nofollow' for tag,attr in html.tags))
         css=(ROOT/'web/styles.css').read_text();self.assertIn(':focus-visible',css);self.assertIn('max-width:359px',css);self.assertIn('prefers-reduced-motion',css)
+
+    def test_index_structured_data_names_application_and_publisher(self):
+        import json,re
+        source=(ROOT/'web/index.html').read_text()
+        blocks=re.findall(r'<script type="application/ld\+json">(.*?)</script>',source,re.S)
+        self.assertEqual(len(blocks),1)
+        graph={node['@type']:node for node in json.loads(blocks[0])['@graph']}
+        self.assertEqual(graph['SoftwareApplication']['url'],'https://model.axisconsult.ru/')
+        self.assertEqual(graph['SoftwareApplication']['publisher']['@id'],graph['Organization']['@id'])
+        self.assertIn('https://axisplatform.ru',graph['Organization']['sameAs'])
+        self.assertNotIn('offers',graph['SoftwareApplication'])
 
     def test_static_allowlist_csp_and_private_scratch_never_served(self):
         reset_database()
@@ -54,6 +71,9 @@ class StaticTests(unittest.TestCase):
                 self.assertTrue(robots.headers['content-type'].startswith('text/plain'))
                 self.assertIn('Sitemap: https://model.axisconsult.ru/sitemap.xml',robots.text)
                 self.assertIn('Disallow: /api/',robots.text)
+                llms=client.get('/llms.txt');self.assertEqual(llms.status_code,200)
+                self.assertTrue(llms.headers['content-type'].startswith('text/plain'))
+                self.assertIn('# Аксис Модель',llms.text);self.assertIn('https://model.axisconsult.ru/',llms.text)
                 sitemap=client.get('/sitemap.xml');self.assertEqual(sitemap.status_code,200)
                 from xml.etree import ElementTree
                 locations=[node.text for node in ElementTree.fromstring(sitemap.text).iter('{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]

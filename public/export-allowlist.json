@@ -1042,6 +1042,10 @@
       "export": "web/robots.txt"
     },
     {
+      "source": "web/llms.txt",
+      "export": "web/llms.txt"
+    },
+    {
       "source": "web/src/analytics.js",
       "export": "web/src/analytics.js"
     },
