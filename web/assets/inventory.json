@@ -14,6 +14,12 @@
       "source": "Axis Sites public asset src/assets/max-icon.png, resized to 64 px; MAX messenger mark, used only as a contact link label"
     },
     {
+      "path": "og-image.png",
+      "sha256": "cf4f749070b1e7368f9614134923f2c2c6f15fbfe1b9a0d6cf09f16ec5b7daa7",
+      "bytes": 71947,
+      "source": "Composed for link previews from axis-sign.png and npm-result.svg, 1200x630"
+    },
+    {
       "path": "fonts/manrope-latin-wght-normal.woff2",
       "sha256": "a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972",
       "bytes": 24836,

@@ -690,6 +690,10 @@
       "export": "web/assets/axis-sign.png"
     },
     {
+      "source": "web/assets/og-image.png",
+      "export": "web/assets/og-image.png"
+    },
+    {
       "source": "web/assets/max-icon.png",
       "export": "web/assets/max-icon.png"
     },
@@ -816,6 +820,10 @@
     {
       "source": "web/support.html",
       "export": "web/support.html"
+    },
+    {
+      "source": "web/terms.html",
+      "export": "web/terms.html"
     },
     {
       "source": "web/tests/api.test.mjs",
