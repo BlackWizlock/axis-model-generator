@@ -1,6 +1,6 @@
 const COUNTER = 113547069;
 const ORIGIN = 'https://model.axisconsult.ru';
-const PAGES = new Set(['/', '/privacy', '/support', '/analytics-consent']);
+const PAGES = new Set(['/', '/privacy', '/support', '/terms', '/analytics-consent']);
 const ANCHORS = new Set(['', '#main', '#workspace', '#checks-section', '#preview-section', '#formats', '#analytics-consent']);
 const QUERY_KEYS = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'yclid', '_ym_debug']);
 const GOALS = new Set(['upload_started', 'upload_completed', 'diagnosis_started', 'diagnosis_completed',
